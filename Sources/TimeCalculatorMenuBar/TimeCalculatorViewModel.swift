@@ -210,12 +210,18 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func updateTargetHours(_ hours: Int) {
+        if isStartTimeUnset || isEndTimeUnset {
+            reactivateTimeInputs()
+        }
         targetWorkMinutes = hours * 60
         alignTimesUsingLastEditedField()
         persist()
     }
 
     func updateMenuBarDisplayMode(_ mode: MenuBarDisplayMode?) {
+        if isStartTimeUnset || isEndTimeUnset {
+            reactivateTimeInputs()
+        }
         menuBarDisplayMode = mode
         defaults.set(mode?.rawValue, forKey: Keys.menuBarDisplayMode)
     }
@@ -238,6 +244,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func resetMenuBarAndTimes() {
         let now = currentTime
+        targetWorkMinutes = 8 * 60
         let defaultStart = calendar.date(
             bySettingHour: 9,
             minute: 0,
@@ -253,6 +260,12 @@ final class TimeCalculatorViewModel: ObservableObject {
         menuBarDisplayMode = nil
         defaults.removeObject(forKey: Keys.menuBarDisplayMode)
         persist()
+    }
+
+    private func reactivateTimeInputs() {
+        isStartTimeUnset = false
+        isEndTimeUnset = false
+        alignTimesUsingLastEditedField()
     }
 
     private func shouldResetForNewDay(referenceDate: Date) -> Bool {
