@@ -8,6 +8,8 @@ final class TimeCalculatorViewModel: ObservableObject {
     @Published private(set) var endTime: Date
     @Published private(set) var targetWorkMinutes: Int
     @Published private(set) var menuBarDisplayMode: MenuBarDisplayMode?
+    @Published private(set) var isStartTimeUnset: Bool
+    @Published private(set) var isEndTimeUnset: Bool
     @Published private var currentTime: Date
 
     private let defaults = UserDefaults.standard
@@ -23,6 +25,8 @@ final class TimeCalculatorViewModel: ObservableObject {
         static let lastEditedField = "lastEditedField"
         static let menuBarDisplayMode = "menuBarDisplayMode"
         static let lastActiveDayStart = "lastActiveDayStart"
+        static let isStartTimeUnset = "isStartTimeUnset"
+        static let isEndTimeUnset = "isEndTimeUnset"
     }
 
     private enum EditedField: String {
@@ -80,6 +84,8 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         let savedDisplayMode = defaults.string(forKey: Keys.menuBarDisplayMode)
         menuBarDisplayMode = savedDisplayMode.flatMap(MenuBarDisplayMode.init(rawValue:))
+        isStartTimeUnset = defaults.object(forKey: Keys.isStartTimeUnset) as? Bool ?? false
+        isEndTimeUnset = defaults.object(forKey: Keys.isEndTimeUnset) as? Bool ?? false
 
         let initialEndTime: Date
         if let savedEnd = defaults.object(forKey: Keys.endTime) as? Date {
@@ -132,11 +138,17 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     var formattedStartTime: String {
-        formattedClock(startTime)
+        guard !isStartTimeUnset else {
+            return "-- --"
+        }
+        return formattedClock(startTime)
     }
 
     var formattedEndTime: String {
-        formattedClock(endTime)
+        guard !isEndTimeUnset else {
+            return "-- --"
+        }
+        return formattedClock(endTime)
     }
 
     var fixedBreakDescription: String {
@@ -181,6 +193,8 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func updateStartTime(_ newValue: Date) {
         lastEditedField = .startTime
+        isStartTimeUnset = false
+        isEndTimeUnset = false
         startTime = newValue
         endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: newValue)
         persist()
@@ -188,6 +202,8 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func updateEndTime(_ newValue: Date) {
         lastEditedField = .endTime
+        isStartTimeUnset = false
+        isEndTimeUnset = false
         endTime = newValue
         startTime = addingMinutes(-(targetWorkMinutes + fixedBreakMinutes), to: newValue)
         persist()
@@ -202,6 +218,41 @@ final class TimeCalculatorViewModel: ObservableObject {
     func updateMenuBarDisplayMode(_ mode: MenuBarDisplayMode?) {
         menuBarDisplayMode = mode
         defaults.set(mode?.rawValue, forKey: Keys.menuBarDisplayMode)
+    }
+
+    func activateStartTimeSelection() {
+        isStartTimeUnset = false
+        isEndTimeUnset = false
+        lastEditedField = .startTime
+        endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: startTime)
+        persist()
+    }
+
+    func activateEndTimeSelection() {
+        isStartTimeUnset = false
+        isEndTimeUnset = false
+        lastEditedField = .endTime
+        startTime = addingMinutes(-(targetWorkMinutes + fixedBreakMinutes), to: endTime)
+        persist()
+    }
+
+    func resetMenuBarAndTimes() {
+        let now = currentTime
+        let defaultStart = calendar.date(
+            bySettingHour: 9,
+            minute: 0,
+            second: 0,
+            of: now
+        ) ?? now
+
+        startTime = defaultStart
+        endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: defaultStart)
+        isStartTimeUnset = true
+        isEndTimeUnset = true
+        lastEditedField = .startTime
+        menuBarDisplayMode = nil
+        defaults.removeObject(forKey: Keys.menuBarDisplayMode)
+        persist()
     }
 
     private func shouldResetForNewDay(referenceDate: Date) -> Bool {
@@ -223,6 +274,8 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         startTime = defaultStart
         endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: defaultStart)
+        isStartTimeUnset = true
+        isEndTimeUnset = true
         lastEditedField = .startTime
         menuBarDisplayMode = nil
 
@@ -251,6 +304,10 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private var workedMinutesToday: Int {
+        if isStartTimeUnset || isEndTimeUnset {
+            return 0
+        }
+
         if currentTime <= startTime {
             return 0
         }
@@ -326,5 +383,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         defaults.set(startTime, forKey: Keys.startTime)
         defaults.set(endTime, forKey: Keys.endTime)
         defaults.set(targetWorkMinutes, forKey: Keys.targetWorkMinutes)
+        defaults.set(isStartTimeUnset, forKey: Keys.isStartTimeUnset)
+        defaults.set(isEndTimeUnset, forKey: Keys.isEndTimeUnset)
     }
 }

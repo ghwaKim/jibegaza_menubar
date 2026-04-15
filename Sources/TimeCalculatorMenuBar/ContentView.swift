@@ -98,14 +98,10 @@ struct ContentView: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("메뉴바 표시")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Text("\(viewModel.menuBarIcon) \(viewModel.menuBarTitle)")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+            Button("Reset") {
+                viewModel.resetMenuBarAndTimes()
             }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -118,8 +114,16 @@ struct ContentView: View {
         HStack {
             Text(title)
             Spacer()
-            DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
-                .labelsHidden()
+            if let placeholder = placeholderText(for: title) {
+                Button(placeholder) {
+                    activateTimeSelection(for: title)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            } else {
+                DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+            }
         }
     }
 
@@ -140,6 +144,28 @@ struct ContentView: View {
                 .multilineTextAlignment(.trailing)
         }
         .font(.system(size: 13))
+    }
+
+    private func placeholderText(for title: String) -> String? {
+        switch title {
+        case "출근 시간":
+            return viewModel.isStartTimeUnset ? "-- --" : nil
+        case "퇴근 시간":
+            return viewModel.isEndTimeUnset ? "-- --" : nil
+        default:
+            return nil
+        }
+    }
+
+    private func activateTimeSelection(for title: String) {
+        switch title {
+        case "출근 시간":
+            viewModel.activateStartTimeSelection()
+        case "퇴근 시간":
+            viewModel.activateEndTimeSelection()
+        default:
+            break
+        }
     }
 }
 
