@@ -1,0 +1,283 @@
+import Foundation
+import SwiftUI
+import Combine
+
+@MainActor
+final class TimeCalculatorViewModel: ObservableObject {
+    @Published private(set) var startTime: Date
+    @Published private(set) var endTime: Date
+    @Published private(set) var targetWorkMinutes: Int
+    @Published private(set) var menuBarDisplayMode: MenuBarDisplayMode?
+    @Published private var currentTime: Date
+
+    private let defaults = UserDefaults.standard
+    private let calendar = Calendar.current
+    private let fixedBreakMinutes = 60
+    private var timerCancellable: AnyCancellable?
+
+    private enum Keys {
+        static let startTime = "startTime"
+        static let endTime = "endTime"
+        static let targetWorkMinutes = "targetWorkMinutes"
+        static let lastEditedField = "lastEditedField"
+        static let menuBarDisplayMode = "menuBarDisplayMode"
+    }
+
+    private enum EditedField: String {
+        case startTime
+        case endTime
+    }
+
+    enum MenuBarDisplayMode: String, CaseIterable, Identifiable {
+        case totalWorkedToday
+        case remainingWorkToday
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .totalWorkedToday:
+                "오늘 총 근무시간"
+            case .remainingWorkToday:
+                "오늘 남은 근무시간"
+            }
+        }
+    }
+
+    private var lastEditedField: EditedField {
+        didSet { defaults.set(lastEditedField.rawValue, forKey: Keys.lastEditedField) }
+    }
+
+    init() {
+        let now = Date()
+        currentTime = now
+        let defaultStart = calendar.date(
+            bySettingHour: 9,
+            minute: 0,
+            second: 0,
+            of: now
+        ) ?? now
+
+        let savedTarget = defaults.object(forKey: Keys.targetWorkMinutes) as? Int
+        let initialTargetWorkMinutes = savedTarget ?? 8 * 60
+
+        let initialStartTime = defaults.object(forKey: Keys.startTime) as? Date ?? defaultStart
+
+        let savedEditedField = defaults.string(forKey: Keys.lastEditedField)
+        lastEditedField = EditedField(rawValue: savedEditedField ?? "") ?? .startTime
+
+        let savedDisplayMode = defaults.string(forKey: Keys.menuBarDisplayMode)
+        menuBarDisplayMode = savedDisplayMode.flatMap(MenuBarDisplayMode.init(rawValue:))
+
+        let initialEndTime: Date
+        if let savedEnd = defaults.object(forKey: Keys.endTime) as? Date {
+            initialEndTime = savedEnd
+        } else {
+            initialEndTime = calendar.date(
+                byAdding: .minute,
+                value: initialTargetWorkMinutes + fixedBreakMinutes,
+                to: initialStartTime
+            ) ?? initialStartTime
+        }
+
+        targetWorkMinutes = initialTargetWorkMinutes
+        startTime = initialStartTime
+        endTime = initialEndTime
+
+        alignTimesUsingLastEditedField()
+        startTimer()
+    }
+
+    var menuBarTitle: String {
+        guard let menuBarDisplayMode else {
+            return "-- -- --"
+        }
+
+        switch menuBarDisplayMode {
+        case .totalWorkedToday:
+            return formattedDuration(workedMinutesToday)
+        case .remainingWorkToday:
+            return formattedDuration(remainingWorkMinutesToday)
+        }
+    }
+
+    var menuBarIcon: String {
+        guard let menuBarDisplayMode else {
+            return "❓"
+        }
+
+        switch menuBarDisplayMode {
+        case .totalWorkedToday:
+            return "⏰"
+        case .remainingWorkToday:
+            return "⏳"
+        }
+    }
+
+    var formattedTargetWork: String {
+        formattedDuration(targetWorkMinutes)
+    }
+
+    var formattedStartTime: String {
+        formattedClock(startTime)
+    }
+
+    var formattedEndTime: String {
+        formattedClock(endTime)
+    }
+
+    var fixedBreakDescription: String {
+        "60분 (오후 12:30 ~ 오후 1:30)"
+    }
+
+    var formattedWorkedToday: String {
+        formattedDuration(workedMinutesToday)
+    }
+
+    var formattedRemainingToday: String {
+        formattedDuration(remainingWorkMinutesToday)
+    }
+
+    var startTimeBinding: Binding<Date> {
+        Binding(
+            get: { self.startTime },
+            set: { self.updateStartTime($0) }
+        )
+    }
+
+    var endTimeBinding: Binding<Date> {
+        Binding(
+            get: { self.endTime },
+            set: { self.updateEndTime($0) }
+        )
+    }
+
+    var targetHoursBinding: Binding<Int> {
+        Binding(
+            get: { self.targetWorkMinutes / 60 },
+            set: { self.updateTargetHours($0) }
+        )
+    }
+
+    var menuBarDisplayModeBinding: Binding<MenuBarDisplayMode?> {
+        Binding(
+            get: { self.menuBarDisplayMode },
+            set: { self.updateMenuBarDisplayMode($0) }
+        )
+    }
+
+    func updateStartTime(_ newValue: Date) {
+        lastEditedField = .startTime
+        startTime = newValue
+        endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: newValue)
+        persist()
+    }
+
+    func updateEndTime(_ newValue: Date) {
+        lastEditedField = .endTime
+        endTime = newValue
+        startTime = addingMinutes(-(targetWorkMinutes + fixedBreakMinutes), to: newValue)
+        persist()
+    }
+
+    func updateTargetHours(_ hours: Int) {
+        targetWorkMinutes = hours * 60
+        alignTimesUsingLastEditedField()
+        persist()
+    }
+
+    func updateMenuBarDisplayMode(_ mode: MenuBarDisplayMode?) {
+        menuBarDisplayMode = mode
+        defaults.set(mode?.rawValue, forKey: Keys.menuBarDisplayMode)
+    }
+
+    private func alignTimesUsingLastEditedField() {
+        switch lastEditedField {
+        case .startTime:
+            endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: startTime)
+        case .endTime:
+            startTime = addingMinutes(-(targetWorkMinutes + fixedBreakMinutes), to: endTime)
+        }
+    }
+
+    private func addingMinutes(_ minutes: Int, to date: Date) -> Date {
+        calendar.date(byAdding: .minute, value: minutes, to: date) ?? date
+    }
+
+    private var workedMinutesToday: Int {
+        if currentTime <= startTime {
+            return 0
+        }
+
+        let effectiveEnd = min(currentTime, endTime)
+        let rawWorkedMinutes = max(0, minutesBetween(startTime, and: effectiveEnd))
+        let breakOverlap = overlapMinutes(
+            firstStart: startTime,
+            firstEnd: effectiveEnd,
+            secondStart: fixedBreakStart,
+            secondEnd: fixedBreakEnd
+        )
+
+        return min(targetWorkMinutes, max(0, rawWorkedMinutes - breakOverlap))
+    }
+
+    private var remainingWorkMinutesToday: Int {
+        max(0, targetWorkMinutes - workedMinutesToday)
+    }
+
+    private var fixedBreakStart: Date {
+        calendar.date(bySettingHour: 12, minute: 30, second: 0, of: startTime) ?? startTime
+    }
+
+    private var fixedBreakEnd: Date {
+        calendar.date(bySettingHour: 13, minute: 30, second: 0, of: startTime) ?? startTime
+    }
+
+    private func minutesBetween(_ start: Date, and end: Date) -> Int {
+        max(0, Int(end.timeIntervalSince(start) / 60))
+    }
+
+    private func overlapMinutes(
+        firstStart: Date,
+        firstEnd: Date,
+        secondStart: Date,
+        secondEnd: Date
+    ) -> Int {
+        let overlapStart = max(firstStart, secondStart)
+        let overlapEnd = min(firstEnd, secondEnd)
+
+        guard overlapEnd > overlapStart else {
+            return 0
+        }
+
+        return minutesBetween(overlapStart, and: overlapEnd)
+    }
+
+    private func formattedDuration(_ totalMinutes: Int) -> String {
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        return String(format: "%dh %02dm", hours, minutes)
+    }
+
+    private func startTimer() {
+        timerCancellable = Timer
+            .publish(every: 60, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] now in
+                self?.currentTime = now
+            }
+    }
+
+    private func formattedClock(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "a h:mm"
+        return formatter.string(from: date)
+    }
+
+    private func persist() {
+        defaults.set(startTime, forKey: Keys.startTime)
+        defaults.set(endTime, forKey: Keys.endTime)
+        defaults.set(targetWorkMinutes, forKey: Keys.targetWorkMinutes)
+    }
+}
