@@ -10,6 +10,7 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 RELEASE_BINARY="$ROOT_DIR/.build/release/$EXECUTABLE_NAME"
 ZIP_PATH="$ROOT_DIR/dist/$APP_NAME.zip"
+ICON_PATH="$ROOT_DIR/Resources/AppIcon.icns"
 
 mkdir -p "$ROOT_DIR/dist"
 
@@ -28,6 +29,10 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$RELEASE_BINARY" "$MACOS_DIR/$EXECUTABLE_NAME"
 chmod +x "$MACOS_DIR/$EXECUTABLE_NAME"
+
+if [[ -f "$ICON_PATH" ]]; then
+  cp "$ICON_PATH" "$RESOURCES_DIR/AppIcon.icns"
+fi
 
 if command -v codesign >/dev/null 2>&1; then
   echo "Applying ad-hoc code signature..."
