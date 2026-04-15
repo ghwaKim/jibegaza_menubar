@@ -227,16 +227,14 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func activateStartTimeSelection() {
-        isStartTimeUnset = false
-        isEndTimeUnset = false
+        reactivateTimeInputs()
         lastEditedField = .startTime
         endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: startTime)
         persist()
     }
 
     func activateEndTimeSelection() {
-        isStartTimeUnset = false
-        isEndTimeUnset = false
+        reactivateTimeInputs()
         lastEditedField = .endTime
         startTime = addingMinutes(-(targetWorkMinutes + fixedBreakMinutes), to: endTime)
         persist()
@@ -265,6 +263,8 @@ final class TimeCalculatorViewModel: ObservableObject {
     private func reactivateTimeInputs() {
         isStartTimeUnset = false
         isEndTimeUnset = false
+        menuBarDisplayMode = .remainingWorkToday
+        defaults.set(MenuBarDisplayMode.remainingWorkToday.rawValue, forKey: Keys.menuBarDisplayMode)
         alignTimesUsingLastEditedField()
     }
 
