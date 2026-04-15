@@ -34,12 +34,21 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         var id: String { rawValue }
 
+        var icon: String {
+            switch self {
+            case .totalWorkedToday:
+                return "⏱️"
+            case .remainingWorkToday:
+                return "⏳"
+            }
+        }
+
         var label: String {
             switch self {
             case .totalWorkedToday:
-                "오늘 총 근무시간"
+                return "오늘 총 근무시간"
             case .remainingWorkToday:
-                "오늘 남은 근무시간"
+                return "오늘 남은 근무시간"
             }
         }
     }
@@ -90,7 +99,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     var menuBarTitle: String {
         guard let menuBarDisplayMode else {
-            return "-- -- --"
+            return "👀"
         }
 
         switch menuBarDisplayMode {
@@ -103,15 +112,10 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     var menuBarIcon: String {
         guard let menuBarDisplayMode else {
-            return "❓"
+            return "⚙️"
         }
 
-        switch menuBarDisplayMode {
-        case .totalWorkedToday:
-            return "⏰"
-        case .remainingWorkToday:
-            return "⏳"
-        }
+        return menuBarDisplayMode.icon
     }
 
     var formattedTargetWork: String {
