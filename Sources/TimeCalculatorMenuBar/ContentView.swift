@@ -15,20 +15,24 @@ struct ContentView: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("근무 시간 계산기")
-                .font(.title3.weight(.semibold))
+        HStack(spacing: 0) {
+            HStack(spacing: 24) {
+                Text("🏡")
+                Text("🏃‍♂️💨")
+            }
+
+            Spacer()
 
             HStack(spacing: 0) {
-                Text("주간 근무 시간 계산기 👉 ")
+                Text("Weekly 👉 ")
                     .foregroundStyle(.secondary)
                 Link(
-                    "https://jibegaza.vercel.app/",
+                    "jibegaza.vercel.app",
                     destination: URL(string: "https://jibegaza.vercel.app/")!
                 )
             }
-            .font(.headline.weight(.medium))
         }
+        .font(.headline.weight(.medium))
     }
 
     private var controlsSection: some View {
@@ -90,18 +94,26 @@ struct ContentView: View {
 
     private var footerSection: some View {
         HStack(alignment: .center) {
-            Button("앱 종료") {
+            Button {
                 NSApplication.shared.terminate(nil)
+            } label: {
+                Label("앱 종료", systemImage: "power")
+                .imageScale(.small)
             }
             .keyboardShortcut("q")
             .buttonStyle(.bordered)
+            .tint(Color(nsColor: .systemBrown))
 
             Spacer()
 
-            Button("Reset") {
+            Button {
                 viewModel.resetMenuBarAndTimes()
+            } label: {
+                Label("Reset", systemImage: "arrow.counterclockwise")
+                .imageScale(.small)
             }
             .buttonStyle(.bordered)
+            .tint(Color(nsColor: .systemGray))
         }
     }
 
