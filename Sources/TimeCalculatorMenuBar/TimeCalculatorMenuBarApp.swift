@@ -19,6 +19,8 @@ struct TimeCalculatorMenuBarApp: App {
                 .frame(width: 380)
         } label: {
             Text("\(viewModel.menuBarIcon)\(viewModel.menuBarTitle)")
+                .monospacedDigit()
+                .frame(width: 86, alignment: .leading)
         }
         .menuBarExtraStyle(.window)
     }
