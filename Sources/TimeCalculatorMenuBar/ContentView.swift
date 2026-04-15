@@ -15,7 +15,7 @@ struct ContentView: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("근무 시간 계산기")
                 .font(.title3.weight(.semibold))
 
@@ -27,22 +27,18 @@ struct ContentView: View {
                     destination: URL(string: "https://jibegaza.vercel.app/")!
                 )
             }
-            .font(.subheadline)
+            .font(.headline.weight(.medium))
         }
     }
 
     private var controlsSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader("계산 설정")
-
             VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("메뉴바 표시")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 16) {
+                    Text("메뉴바 설정")
+                        .font(.body.weight(.bold))
 
-                    Picker("메뉴바 표시", selection: viewModel.menuBarDisplayModeBinding) {
-                        Text("선택 안 함").tag(TimeCalculatorViewModel.MenuBarDisplayMode?.none)
+                    Picker("", selection: viewModel.menuBarDisplayModeBinding) {
                         menuBarDisplayModeOption(TimeCalculatorViewModel.MenuBarDisplayMode.totalWorkedToday)
                         menuBarDisplayModeOption(TimeCalculatorViewModel.MenuBarDisplayMode.remainingWorkToday)
                     }
@@ -51,10 +47,10 @@ struct ContentView: View {
 
                 Divider()
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("목표 근무 시간")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 16) {
+                    // Text("목표 근무 시간")
+                    //     .font(.subheadline.weight(.semibold))
+                    //     .foregroundStyle(.secondary)
 
                     Picker("목표 근무 시간", selection: viewModel.targetHoursBinding) {
                         targetHourOption(6)
@@ -62,13 +58,16 @@ struct ContentView: View {
                         targetHourOption(8)
                         targetHourOption(9)
                     }
+                    .font(.body.weight(.bold))
                     .pickerStyle(.segmented)
                 }
 
                 Divider()
 
                 timePickerRow(title: "출근 시간", selection: viewModel.startTimeBinding)
+                    .font(.body.weight(.bold))
                 timePickerRow(title: "퇴근 시간", selection: viewModel.endTimeBinding)
+                    .font(.body.weight(.bold))
             }
         }
         .cardStyle()
@@ -80,7 +79,6 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 summaryLine(title: "목표 근무 시간", value: viewModel.formattedTargetWork)
-                summaryLine(title: "고정 휴게 시간", value: viewModel.fixedBreakDescription)
                 summaryLine(title: "출근 시간", value: viewModel.formattedStartTime)
                 summaryLine(title: "퇴근 시간", value: viewModel.formattedEndTime)
                 summaryLine(title: "오늘 총 근무시간", value: viewModel.formattedWorkedToday)
@@ -119,7 +117,6 @@ struct ContentView: View {
     private func timePickerRow(title: String, selection: Binding<Date>) -> some View {
         HStack {
             Text(title)
-                .font(.body)
             Spacer()
             DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
                 .labelsHidden()

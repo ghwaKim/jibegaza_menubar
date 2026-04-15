@@ -18,7 +18,7 @@ struct TimeCalculatorMenuBarApp: App {
                 .environmentObject(viewModel)
                 .frame(width: 380)
         } label: {
-            Text("\(viewModel.menuBarIcon) \(viewModel.menuBarTitle)")
+            Text("\(viewModel.menuBarIcon)\(viewModel.menuBarTitle)")
         }
         .menuBarExtraStyle(.window)
     }

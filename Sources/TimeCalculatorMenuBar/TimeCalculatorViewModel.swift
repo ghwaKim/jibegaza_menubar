@@ -14,6 +14,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     private let calendar = Calendar.current
     private let fixedBreakMinutes = 60
     private var timerCancellable: AnyCancellable?
+    private var trackedDayStart: Date
 
     private enum Keys {
         static let startTime = "startTime"
@@ -21,6 +22,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         static let targetWorkMinutes = "targetWorkMinutes"
         static let lastEditedField = "lastEditedField"
         static let menuBarDisplayMode = "menuBarDisplayMode"
+        static let lastActiveDayStart = "lastActiveDayStart"
     }
 
     private enum EditedField: String {
@@ -60,6 +62,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     init() {
         let now = Date()
         currentTime = now
+        trackedDayStart = calendar.startOfDay(for: now)
         let defaultStart = calendar.date(
             bySettingHour: 9,
             minute: 0,
@@ -93,18 +96,24 @@ final class TimeCalculatorViewModel: ObservableObject {
         startTime = initialStartTime
         endTime = initialEndTime
 
+        if shouldResetForNewDay(referenceDate: now) {
+            resetForNewDay(referenceDate: now)
+        } else {
+            defaults.set(trackedDayStart, forKey: Keys.lastActiveDayStart)
+        }
+
         alignTimesUsingLastEditedField()
         startTimer()
     }
 
     var menuBarTitle: String {
         guard let menuBarDisplayMode else {
-            return "👀"
+            return "-- -- --"
         }
 
         switch menuBarDisplayMode {
         case .totalWorkedToday:
-            return formattedDuration(workedMinutesToday)
+            return formattedDuration(min(workedMinutesToday, 9 * 60))
         case .remainingWorkToday:
             return formattedDuration(remainingWorkMinutesToday)
         }
@@ -112,7 +121,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     var menuBarIcon: String {
         guard let menuBarDisplayMode else {
-            return "⚙️"
+            return "❓"
         }
 
         return menuBarDisplayMode.icon
@@ -195,6 +204,39 @@ final class TimeCalculatorViewModel: ObservableObject {
         defaults.set(mode?.rawValue, forKey: Keys.menuBarDisplayMode)
     }
 
+    private func shouldResetForNewDay(referenceDate: Date) -> Bool {
+        guard let savedDayStart = defaults.object(forKey: Keys.lastActiveDayStart) as? Date else {
+            return false
+        }
+
+        return !calendar.isDate(savedDayStart, inSameDayAs: referenceDate)
+    }
+
+    private func resetForNewDay(referenceDate: Date) {
+        trackedDayStart = calendar.startOfDay(for: referenceDate)
+        let defaultStart = calendar.date(
+            bySettingHour: 9,
+            minute: 0,
+            second: 0,
+            of: referenceDate
+        ) ?? referenceDate
+
+        startTime = defaultStart
+        endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: defaultStart)
+        lastEditedField = .startTime
+        menuBarDisplayMode = nil
+
+        defaults.removeObject(forKey: Keys.menuBarDisplayMode)
+        defaults.set(trackedDayStart, forKey: Keys.lastActiveDayStart)
+        persist()
+    }
+
+    private func handleDayChangeIfNeeded(for now: Date) {
+        if !calendar.isDate(trackedDayStart, inSameDayAs: now) {
+            resetForNewDay(referenceDate: now)
+        }
+    }
+
     private func alignTimesUsingLastEditedField() {
         switch lastEditedField {
         case .startTime:
@@ -269,6 +311,7 @@ final class TimeCalculatorViewModel: ObservableObject {
             .autoconnect()
             .sink { [weak self] now in
                 self?.currentTime = now
+                self?.handleDayChangeIfNeeded(for: now)
             }
     }
 
