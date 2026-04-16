@@ -49,6 +49,15 @@ final class TimeCalculatorViewModel: ObservableObject {
             }
         }
 
+        var symbolName: String {
+            switch self {
+            case .totalWorkedToday:
+                return "stopwatch"
+            case .remainingWorkToday:
+                return "clock.arrow.circlepath"
+            }
+        }
+
         var label: String {
             switch self {
             case .totalWorkedToday:
@@ -125,12 +134,12 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
     }
 
-    var menuBarIcon: String {
+    var menuBarSymbolName: String {
         guard let menuBarDisplayMode else {
-            return "❓"
+            return "questionmark.circle"
         }
 
-        return menuBarDisplayMode.icon
+        return menuBarDisplayMode.symbolName
     }
 
     var formattedTargetWork: String {
