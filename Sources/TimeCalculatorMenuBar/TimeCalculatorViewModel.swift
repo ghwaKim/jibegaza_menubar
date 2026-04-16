@@ -93,8 +93,8 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
     }
 
-    var menuBarSymbolName: String {
-        menuBarDisplayMode?.symbolName ?? "questionmark.circle"
+    var menuBarEmoji: String {
+        menuBarDisplayMode?.menuBarEmoji ?? "❓"
     }
 
     var formattedTargetWork: String {
@@ -122,7 +122,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     var weekRemainingText: String {
-        weeklyRemainingMinutes == 0 ? "근무시간 달성 😎" : formatMinutesToKorean(weeklyRemainingMinutes)
+        weeklyRemainingMinutes == 0 ? "집에가자 😎" : formatMinutesToKorean(weeklyRemainingMinutes)
     }
 
     var menuBarMetricBinding: Binding<MenuBarMetric> {
@@ -234,24 +234,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
     }
 
-    func toggleWeeklyStartLock(idx: Int) {
-        handleWeeklyUpdate(idx: idx, updatesReason: .stateOnly) { day in
-            day.lockStart.toggle()
-        }
-    }
-
-    func toggleWeeklyEndLock(idx: Int) {
-        handleWeeklyUpdate(idx: idx, updatesReason: .stateOnly) { day in
-            day.lockEnd.toggle()
-        }
-    }
-
-    func toggleWeeklyManualLock(idx: Int) {
-        handleWeeklyUpdate(idx: idx, updatesReason: .stateOnly) { day in
-            day.lockManual.toggle()
-        }
-    }
-
     func updateWeeklyStart(idx: Int, value: String) {
         var newData = weeklyData
         newData[idx].start = sanitizeTimeString(value)
@@ -317,7 +299,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         let neededWorkMinutes = max(0, 8 * 60 - getLeaveCreditMinutes(data))
         var newData = weeklyData
 
-        if !data.start.isEmpty && !data.lockEnd {
+        if !data.start.isEmpty {
             newData[idx].end = minutesToTime(
                 calculateReverseTime(
                     baseTimeMinutes: timeToMinutes(data.start),
@@ -325,7 +307,7 @@ final class TimeCalculatorViewModel: ObservableObject {
                     type: .end
                 )
             )
-        } else if !data.end.isEmpty && !data.lockStart {
+        } else if !data.end.isEmpty {
             newData[idx].start = minutesToTime(
                 calculateReverseTime(
                     baseTimeMinutes: timeToMinutes(data.end),
@@ -339,7 +321,7 @@ final class TimeCalculatorViewModel: ObservableObject {
             data: newData,
             preferredTarget: autoFillTarget,
             excludedIndexes: excludedAutoFillIndexes,
-            allowPreferredOverride: shouldPreserveAutoFillTarget(data: newData, target: autoFillTarget)
+            allowPreferredOverride: false
         )
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excludedAutoFillIndexes)
     }
@@ -348,7 +330,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         if isStartTimeUnset || isEndTimeUnset {
             reactivateTodayInputs()
         }
-        setMenuBarDisplayMode(MenuBarDisplayMode(scope: .today, metric: metric))
+        setMenuBarDisplayMode(MenuBarDisplayMode(metric: metric))
     }
 
     private func setMenuBarDisplayMode(_ mode: MenuBarDisplayMode?) {
@@ -365,7 +347,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         isStartTimeUnset = false
         isEndTimeUnset = false
         alignTimesUsingLastEditedField()
-        setMenuBarDisplayMode(MenuBarDisplayMode(scope: .today, metric: .remaining))
+        setMenuBarDisplayMode(MenuBarDisplayMode(metric: .remaining))
     }
 
     private func shouldResetForNewDay(referenceDate: Date) -> Bool {
@@ -453,7 +435,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     private func compactDuration(_ totalMinutes: Int) -> String {
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
-        return String(format: "%d:%02d", hours, minutes)
+        return "\(hours)h \(minutes)m"
     }
 
     private func formattedClock(_ date: Date) -> String {
@@ -501,7 +483,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard let decoded = try? JSONDecoder().decode(MenuBarDisplayMode.self, from: data) else {
             return nil
         }
-        return MenuBarDisplayMode(scope: .today, metric: decoded.metric)
+        return MenuBarDisplayMode(metric: decoded.metric)
     }
 
     private static func loadWeeklyData(from defaults: UserDefaults) -> [DayWorkData] {
@@ -538,12 +520,11 @@ final class TimeCalculatorViewModel: ObservableObject {
             : excludedAutoFillIndexes
 
         let preferredTarget = autoFillTarget?.idx == idx && updatesReason == .stateOnly ? nil : autoFillTarget
-        let allowPreferredOverride = shouldPreserveAutoFillTarget(data: newData, target: autoFillTarget)
         let result = applyAutoFill(
             data: newData,
             preferredTarget: preferredTarget,
             excludedIndexes: nextExcluded,
-            allowPreferredOverride: allowPreferredOverride
+            allowPreferredOverride: false
         )
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
     }
@@ -571,31 +552,16 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         switch target.type {
         case .manual:
-            return day.mode == .manual && !day.lockManual
+            return day.mode == .manual
         case .end:
-            return day.mode == .range && !day.start.isEmpty && !day.lockEnd
+            return day.mode == .range && !day.start.isEmpty
         case .start:
-            return day.mode == .range && !day.end.isEmpty && !day.lockStart
+            return day.mode == .range && !day.end.isEmpty
         }
     }
 
     private func isSameAutoFillTarget(_ lhs: AutoFillTarget?, _ rhs: AutoFillTarget?) -> Bool {
         lhs == rhs
-    }
-
-    private func shouldPreserveAutoFillTarget(data: [DayWorkData], target: AutoFillTarget?) -> Bool {
-        guard let target, isValidAutoFillTarget(data: data, target: target) else {
-            return false
-        }
-        let day = data[target.idx]
-        switch target.type {
-        case .manual:
-            return false
-        case .start:
-            return day.lockEnd
-        case .end:
-            return day.lockStart
-        }
     }
 
     private func inferAutoFillTarget(data: [DayWorkData], excludedIndexes: [Int] = []) -> AutoFillTarget? {
@@ -606,27 +572,18 @@ final class TimeCalculatorViewModel: ObservableObject {
 
             if day.mode == .manual {
                 let hasManualInput = !day.manualHours.isEmpty || !day.manualMinutes.isEmpty
-                if !day.lockManual && !hasManualInput {
+                if !hasManualInput {
                     return [AutoFillTarget(idx: idx, type: .manual)]
                 }
                 return []
             }
 
-            if !day.start.isEmpty && day.end.isEmpty && !day.lockEnd {
+            if !day.start.isEmpty && day.end.isEmpty {
                 return [AutoFillTarget(idx: idx, type: .end)]
             }
 
-            if !day.end.isEmpty && day.start.isEmpty && !day.lockStart {
+            if !day.end.isEmpty && day.start.isEmpty {
                 return [AutoFillTarget(idx: idx, type: .start)]
-            }
-
-            if !day.start.isEmpty && !day.end.isEmpty {
-                if day.lockStart && !day.lockEnd {
-                    return [AutoFillTarget(idx: idx, type: .end)]
-                }
-                if day.lockEnd && !day.lockStart {
-                    return [AutoFillTarget(idx: idx, type: .start)]
-                }
             }
 
             return []
@@ -704,10 +661,10 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
 
         let targetType: AutoFillType = editedField == .start ? .end : .start
-        if targetType == .end && (day.start.isEmpty || day.lockEnd) {
+        if targetType == .end && day.start.isEmpty {
             return nil
         }
-        if targetType == .start && (day.end.isEmpty || day.lockStart) {
+        if targetType == .start && day.end.isEmpty {
             return nil
         }
 

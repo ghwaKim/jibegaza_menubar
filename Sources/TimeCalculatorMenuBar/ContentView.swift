@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
     private let topPanelHeight: CGFloat = 64
+    private let koreanLocale = Locale(identifier: "ko_KR")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -215,55 +216,11 @@ struct ContentView: View {
             }
 
             if day.leaveType != .annual {
-                if day.mode == .range {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            timeTextField(
-                                title: "출근",
-                                text: weeklyStartBinding(index: index),
-                                isLocked: day.lockStart,
-                                toggleLock: { viewModel.toggleWeeklyStartLock(idx: index) }
-                            )
-
-                            Text("~")
-                                .foregroundStyle(.secondary)
-
-                            timeTextField(
-                                title: "퇴근",
-                                text: weeklyEndBinding(index: index),
-                                isLocked: day.lockEnd,
-                                toggleLock: { viewModel.toggleWeeklyEndLock(idx: index) }
-                            )
-                        }
-
-                        if day.leaveType == .half || day.leaveType == .halfHalf {
-                            Button("오늘 8시간 맞추기") {
-                                viewModel.fitWeeklyDayToEightHours(idx: index)
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                } else {
-                    HStack(spacing: 10) {
-                        lockButton(isLocked: day.lockManual) {
-                            viewModel.toggleWeeklyManualLock(idx: index)
-                        }
-
-                        manualField(title: "시간", text: weeklyManualHoursBinding(index: index), disabled: day.lockManual)
-                        manualField(title: "분", text: weeklyManualMinutesBinding(index: index), disabled: day.lockManual)
-                    }
-                }
+                weeklyInputRow(day: day, index: index)
             }
 
             HStack {
-                Button("Delete") {
-                    viewModel.resetWeeklyDay(idx: index)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-
                 Spacer()
-
                 Text("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -280,14 +237,51 @@ struct ContentView: View {
         )
     }
 
-    private func timeTextField(title: String, text: Binding<String>, isLocked: Bool, toggleLock: @escaping () -> Void) -> some View {
-        HStack(spacing: 6) {
-            TextField(title, text: text)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 74)
-                .disabled(isLocked)
+    @ViewBuilder
+    private func weeklyInputRow(day: DayWorkData, index: Int) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            if day.mode == .range {
+                HStack(spacing: 3) {
+                    weeklyTimePickerField(
+                        selection: weeklyStartDateBinding(index: index),
+                        isLocked: false
+                    )
 
-            lockButton(isLocked: isLocked, action: toggleLock)
+                    Text("~")
+                        .frame(width: 10, alignment: .center)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    weeklyTimePickerField(
+                        selection: weeklyEndDateBinding(index: index),
+                        isLocked: false
+                    )
+                }
+            } else {
+                HStack(spacing: 10) {
+                    manualField(title: "시간", text: weeklyManualHoursBinding(index: index), disabled: false)
+                    manualField(title: "분", text: weeklyManualMinutesBinding(index: index), disabled: false)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Delete") {
+                viewModel.resetWeeklyDay(idx: index)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(Color(nsColor: .systemGray))
+        }
+    }
+
+    private func weeklyTimePickerField(selection: Binding<Date>, isLocked: Bool) -> some View {
+        HStack(spacing: 0) {
+            DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
+                .labelsHidden()
+                .environment(\.locale, koreanLocale)
+                .frame(width: 92, alignment: .leading)
+                .disabled(isLocked)
         }
     }
 
@@ -300,11 +294,6 @@ struct ContentView: View {
             Text(title)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private func lockButton(isLocked: Bool, action: @escaping () -> Void) -> some View {
-        Button(isLocked ? "🔒" : "🔓", action: action)
-            .buttonStyle(.borderless)
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -380,18 +369,44 @@ struct ContentView: View {
         )
     }
 
-    private func weeklyStartBinding(index: Int) -> Binding<String> {
+    private func weeklyStartDateBinding(index: Int) -> Binding<Date> {
         Binding(
-            get: { viewModel.weeklyDay(at: index).start },
-            set: { viewModel.updateWeeklyStart(idx: index, value: $0) }
+            get: {
+                dateFromWeeklyTimeString(
+                    viewModel.weeklyDay(at: index).start,
+                    fallbackHour: 9,
+                    fallbackMinute: 0
+                )
+            },
+            set: { viewModel.updateWeeklyStart(idx: index, value: minutesToTime(minutesFromDate($0))) }
         )
     }
 
-    private func weeklyEndBinding(index: Int) -> Binding<String> {
+    private func weeklyEndDateBinding(index: Int) -> Binding<Date> {
         Binding(
-            get: { viewModel.weeklyDay(at: index).end },
-            set: { viewModel.updateWeeklyEnd(idx: index, value: $0) }
+            get: {
+                dateFromWeeklyTimeString(
+                    viewModel.weeklyDay(at: index).end,
+                    fallbackHour: 18,
+                    fallbackMinute: 0
+                )
+            },
+            set: { viewModel.updateWeeklyEnd(idx: index, value: minutesToTime(minutesFromDate($0))) }
         )
+    }
+
+    private func dateFromWeeklyTimeString(_ time: String, fallbackHour: Int, fallbackMinute: Int) -> Date {
+        let minutes = time.isEmpty ? (fallbackHour * 60 + fallbackMinute) : timeToMinutes(time)
+        let hour = minutes / 60
+        let minute = minutes % 60
+        return Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()
+    }
+
+    private func minutesFromDate(_ date: Date) -> Int {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let hour = components.hour ?? 0
+        let minute = components.minute ?? 0
+        return hour * 60 + minute
     }
 
     private func weeklyManualHoursBinding(index: Int) -> Binding<String> {

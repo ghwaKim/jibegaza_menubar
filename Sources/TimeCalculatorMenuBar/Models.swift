@@ -16,22 +16,6 @@ enum WorkTab: String, CaseIterable, Identifiable {
     }
 }
 
-enum MenuBarScope: String, CaseIterable, Identifiable, Codable {
-    case today
-    case week
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .today:
-            return "오늘 근무"
-        case .week:
-            return "금주 근무"
-        }
-    }
-}
-
 enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     case worked
     case remaining
@@ -49,46 +33,52 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
 }
 
 struct MenuBarDisplayMode: Codable, Equatable {
-    var scope: MenuBarScope
     var metric: MenuBarMetric
 
+    init(metric: MenuBarMetric) {
+        self.metric = metric
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case metric
+        case scope
+    }
+
     var popupEmoji: String {
-        switch (scope, metric) {
-        case (.today, .worked):
+        switch metric {
+        case .worked:
             return "⏱️"
-        case (.today, .remaining):
+        case .remaining:
             return "⏳"
-        case (.week, .worked):
-            return "📅"
-        case (.week, .remaining):
-            return "🗓️"
         }
     }
 
     var popupLabel: String {
-        switch (scope, metric) {
-        case (.today, .worked):
+        switch metric {
+        case .worked:
             return "오늘 총 근무시간"
-        case (.today, .remaining):
+        case .remaining:
             return "오늘 남은 근무시간"
-        case (.week, .worked):
-            return "주간 총 근무시간"
-        case (.week, .remaining):
-            return "주간 남은 근무시간"
         }
     }
 
-    var symbolName: String {
-        switch (scope, metric) {
-        case (.today, .worked):
-            return "stopwatch"
-        case (.today, .remaining):
-            return "hourglass"
-        case (.week, .worked):
-            return "calendar"
-        case (.week, .remaining):
-            return "calendar.badge.clock"
+    var menuBarEmoji: String {
+        switch metric {
+        case .worked:
+            return "⏱️"
+        case .remaining:
+            return "⏳"
         }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        metric = try container.decode(MenuBarMetric.self, forKey: .metric)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(metric, forKey: .metric)
     }
 }
 

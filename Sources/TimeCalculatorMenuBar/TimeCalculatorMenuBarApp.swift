@@ -18,13 +18,8 @@ struct TimeCalculatorMenuBarApp: App {
                 .environmentObject(viewModel)
                 .frame(width: 430)
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: viewModel.menuBarSymbolName)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 14, alignment: .center)
-                Text(viewModel.menuBarTitle)
-                    .monospacedDigit()
-            }
+            Text("\(viewModel.menuBarEmoji)\(viewModel.menuBarTitle)")
+                .monospacedDigit()
                 .frame(width: 86, alignment: .leading)
         }
         .menuBarExtraStyle(.window)
