@@ -41,10 +41,11 @@ struct ContentView: View {
 
     // 메뉴바 설정 + 주간 요약 상단 영역
     private var topControlSection: some View {
-        HStack(alignment: .top, spacing: 12) {
-            menuBarSettingsSection
-
-            if viewModel.selectedTab == .week {
+        Group {
+            switch viewModel.selectedTab {
+            case .today:
+                menuBarSettingsSection
+            case .week:
                 weekSummarySection
             }
         }
@@ -64,7 +65,7 @@ struct ContentView: View {
             .pickerStyle(.radioGroup)
         }
         .frame(height: topPanelHeight, alignment: .topLeading)
-        .frame(maxWidth: viewModel.selectedTab == .week ? 200 : .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
     }
 
@@ -310,52 +311,54 @@ struct ContentView: View {
 
             Spacer(minLength: 8)
 
-            Button("Delete") {
+            Button {
                 viewModel.resetWeeklyDay(idx: index)
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 11, weight: .bold))
+                    .padding(6)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(Color(nsColor: .systemGray))
-            .font(.caption.weight(.medium))
+            .buttonStyle(.plain)
+            .foregroundStyle(.tertiary) 
+            .background(
+                Circle() 
+                    .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.7))
+            )
         }
     }
 
     // 주간 구간 입력 시간 슬롯
     @ViewBuilder
     private func weeklyTimeSlotField(timeText: String, selection: Binding<Date>, activate: @escaping () -> Void) -> some View {
-        if timeText.isEmpty {
-            Button("-- --") {
-                activate()
+        Group {
+            if timeText.isEmpty {
+                Button {
+                    activate()
+                } label: {
+                    Text("-- -- --")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 54, height: 24, alignment: .center)
+                }
+                .buttonStyle(.plain)
+            } else {
+                HStack(spacing: 0) {
+                    BorderlessTimePicker(selection: selection)
+                        .frame(width: 88, height: 24)
+                }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .frame(width: 32, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.38))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.22), lineWidth: 0.8)
-            )
-        } else {
-            HStack(spacing: 0) {
-                BorderlessTimePicker(selection: selection)
-                    .frame(width: 88, height: 24)
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(1), lineWidth: 0.8)
-            )
         }
+        // 공통 스타일 적용 (스타일 통일)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor)) 
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.8) 
+        )
     }
 
     // 주간 합계 입력 필드
