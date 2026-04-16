@@ -8,7 +8,7 @@ struct ContentView: View {
 
     // 팝오버 전체 레이아웃
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             headerSection
             tabPickerSection
             topControlSection
@@ -147,8 +147,8 @@ struct ContentView: View {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(
                                         viewModel.targetHoursBinding.wrappedValue == hour
-                                            ? Color(nsColor: .secondaryLabelColor)
-                                            : Color(nsColor: .underPageBackgroundColor).opacity(0.2)
+                                            ? Color.accentColor 
+                                            : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
                                     )
                             )
                             .overlay(
@@ -177,7 +177,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .frame(height: 610)
+            .frame(height: 630)
         }
     }
 
@@ -230,7 +230,7 @@ struct ContentView: View {
     private func weekDayCard(index: Int) -> some View {
         let day = viewModel.weeklyDay(at: index)
 
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center) {
                 Text("\(day.day)요일")
                     .font(.body.weight(.bold))
@@ -238,18 +238,20 @@ struct ContentView: View {
 
                 Spacer()
 
-                borderlessMenuPicker(
-                    selection: weeklyLeaveTypeBinding(index: index),
-                    width: 72
-                ) { leaveType in
-                    leaveType.title
-                }
-                
-                borderlessMenuPicker(
-                    selection: weeklyModeBinding(index: index),
-                    width: 62
-                ) { mode in
-                    mode.title
+                HStack(spacing: 8) {
+                    borderlessMenuPicker(
+                        selection: weeklyLeaveTypeBinding(index: index),
+                        width: 76
+                    ) { leaveType in
+                        leaveType.title
+                    }
+                    
+                    borderlessMenuPicker(
+                        selection: weeklyModeBinding(index: index),
+                        width: 66
+                    ) { mode in
+                        mode.title
+                    }
                 }
             }
 
@@ -259,12 +261,13 @@ struct ContentView: View {
 
             HStack {
                 Spacer()
+
                 Text("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
+        .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -402,27 +405,21 @@ struct ContentView: View {
                 Text(title(selection.wrappedValue))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
             }
-            .frame(width: width, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .frame(width: width)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.3))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 0.8)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
             )
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
-        .fixedSize()
     }
 
     // 오늘 탭의 출근 / 퇴근 시간 입력 행
@@ -474,7 +471,8 @@ struct ContentView: View {
             Spacer(minLength: 12)
             Text(value)
                 .font(.subheadline.monospacedDigit()) 
-                .fontWeight(.medium)
+                .fontWeight(.semibold) 
+                .foregroundStyle(.primary)
         }
         .font(.system(size: 13))
     }
@@ -586,14 +584,13 @@ private struct PanelModifier: ViewModifier {
         content
             .padding(12)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.8)) 
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 0.5) 
             )
-            .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 4)
     }
 }
 
