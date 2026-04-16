@@ -90,6 +90,8 @@ final class TimeCalculatorViewModel: ObservableObject {
             return compactDuration(min(workedMinutesToday, 9 * 60))
         case .remaining:
             return compactDuration(remainingWorkMinutesToday)
+        case .hidden:
+            return ""
         }
     }
 

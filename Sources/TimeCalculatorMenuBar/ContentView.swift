@@ -3,7 +3,6 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
-    private let topPanelHeight: CGFloat = 64
     private let koreanLocale = Locale(identifier: "ko_KR")
 
     // 팝오버 전체 레이아웃
@@ -60,11 +59,12 @@ struct ContentView: View {
             Picker("", selection: viewModel.menuBarMetricBinding) {
                 Text("⏱️ 오늘 총 근무시간").tag(MenuBarMetric.worked)
                 Text("⏳ 오늘 남은 근무시간").tag(MenuBarMetric.remaining)
+                Text("🏃‍♂️ 시간 숨기기").tag(MenuBarMetric.hidden)
             }
             .labelsHidden()
             .pickerStyle(.radioGroup)
         }
-        .frame(height: topPanelHeight, alignment: .topLeading)
+        .frame(height: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
     }
@@ -79,7 +79,7 @@ struct ContentView: View {
                 weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText)
             }
         }
-        .frame(height: topPanelHeight, alignment: .topLeading)
+        .frame(height: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
     }

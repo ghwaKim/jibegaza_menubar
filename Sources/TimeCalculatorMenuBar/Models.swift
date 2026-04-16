@@ -19,6 +19,7 @@ enum WorkTab: String, CaseIterable, Identifiable {
 enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     case worked
     case remaining
+    case hidden
 
     var id: String { rawValue }
 
@@ -28,6 +29,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
             return "지금까지 근무시간"
         case .remaining:
             return "남은 근무시간"
+        case .hidden:
+            return "시간 숨기기"
         }
     }
 }
@@ -50,6 +53,8 @@ struct MenuBarDisplayMode: Codable, Equatable {
             return "⏱️"
         case .remaining:
             return "⏳"
+        case .hidden:
+            return "🌍"
         }
     }
 
@@ -59,6 +64,8 @@ struct MenuBarDisplayMode: Codable, Equatable {
             return "오늘 총 근무시간"
         case .remaining:
             return "오늘 남은 근무시간"
+        case .hidden:
+            return "시간 숨기기"
         }
     }
 
@@ -68,6 +75,8 @@ struct MenuBarDisplayMode: Codable, Equatable {
             return "⏱️"
         case .remaining:
             return "⏳"
+        case .hidden:
+            return "🌍"
         }
     }
 
