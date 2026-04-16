@@ -25,16 +25,7 @@ struct ContentView: View {
             footerSection
         }
         .padding(16)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .underPageBackgroundColor)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     // 상단 헤더 이모지
@@ -478,10 +469,12 @@ struct ContentView: View {
     private func summaryLine(title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 12)
             Text(value)
-                .multilineTextAlignment(.trailing)
+                .font(.subheadline.monospacedDigit()) 
+                .fontWeight(.medium)
         }
         .font(.system(size: 13))
     }
@@ -591,16 +584,16 @@ struct ContentView: View {
 private struct PanelModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .padding(14)
+            .padding(12)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.96))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.65), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
             )
-            .shadow(color: Color.black.opacity(0.06), radius: 16, x: 0, y: 8)
+            .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 4)
     }
 }
 
