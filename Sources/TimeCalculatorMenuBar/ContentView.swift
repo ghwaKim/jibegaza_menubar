@@ -6,6 +6,7 @@ struct ContentView: View {
     private let topPanelHeight: CGFloat = 64
     private let koreanLocale = Locale(identifier: "ko_KR")
 
+    // 팝오버 전체 레이아웃
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             headerSection
@@ -36,6 +37,7 @@ struct ContentView: View {
         )
     }
 
+    // 상단 헤더 이모지
     private var headerSection: some View {
         HStack(spacing: 0) {
             HStack(spacing: 24) {
@@ -46,6 +48,7 @@ struct ContentView: View {
         .font(.headline.weight(.medium))
     }
 
+    // 메뉴바 설정 + 주간 요약 상단 영역
     private var topControlSection: some View {
         HStack(alignment: .top, spacing: 12) {
             menuBarSettingsSection
@@ -56,6 +59,7 @@ struct ContentView: View {
         }
     }
 
+    // 메뉴바 표시 설정 카드
     private var menuBarSettingsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("메뉴바 설정")
@@ -73,6 +77,7 @@ struct ContentView: View {
         .panelStyle()
     }
 
+    // 주간 시간 계산 요약 카드
     private var weekSummarySection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("주간 시간 계산")
@@ -87,6 +92,7 @@ struct ContentView: View {
         .panelStyle()
     }
 
+    // 오늘 근무 / 주간 시간 계산 탭 스위치
     private var tabPickerSection: some View {
         Picker("", selection: $viewModel.selectedTab) {
             ForEach(WorkTab.allCases) { tab in
@@ -97,6 +103,7 @@ struct ContentView: View {
         .pickerStyle(.segmented)
     }
 
+    // 오늘 근무 탭 전체
     private var todayTabSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
@@ -125,11 +132,12 @@ struct ContentView: View {
         }
     }
 
+    // 목표 근무 시간 커스텀 세그먼트 버튼
     private var targetHoursSelector: some View {
         HStack(alignment: .center, spacing: 12) {
             Text("목표 근무 시간")
                 .font(.body.weight(.bold))
-
+            Spacer()
             HStack(spacing: 6) {
                 ForEach([6, 7, 8, 9], id: \.self) { hour in
                     Button {
@@ -137,8 +145,8 @@ struct ContentView: View {
                     } label: {
                         Text("\(hour)h")
                             .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            .frame(width: 44)
+                            .padding(.vertical, 4)
                             .foregroundStyle(
                                 viewModel.targetHoursBinding.wrappedValue == hour
                                     ? Color.white
@@ -148,8 +156,8 @@ struct ContentView: View {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(
                                         viewModel.targetHoursBinding.wrappedValue == hour
-                                            ? Color(nsColor: .tertiaryLabelColor)
-                                            : Color(nsColor: .underPageBackgroundColor).opacity(0.4)
+                                            ? Color(nsColor: .secondaryLabelColor)
+                                            : Color(nsColor: .underPageBackgroundColor).opacity(0.2)
                                     )
                             )
                             .overlay(
@@ -165,14 +173,10 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(4)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
-            )
         }
     }
 
+    // 주간 시간 계산 탭 전체
     private var weekTabSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             ScrollView {
@@ -182,10 +186,11 @@ struct ContentView: View {
                     }
                 }
             }
-            .frame(height: 560)
+            .frame(height: 610)
         }
     }
 
+    // 하단 앱 종료 / 리셋 버튼
     private var footerSection: some View {
         HStack {
             Button {
@@ -195,9 +200,9 @@ struct ContentView: View {
                     .imageScale(.small)
             }
             .keyboardShortcut("q")
-            .buttonStyle(.bordered)
-            .tint(Color(nsColor: .systemBrown))
-
+            .buttonStyle(.borderedProminent)
+            .tint(Color(nsColor: .systemGray))
+            
             Spacer()
 
             Button {
@@ -210,11 +215,12 @@ struct ContentView: View {
                 Label("Reset", systemImage: "arrow.counterclockwise")
                     .imageScale(.small)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
             .tint(Color(nsColor: .systemGray))
         }
     }
 
+    // 주간 합계 / 남은 시간 요약 아이템
     private func weekSummaryCard(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
@@ -229,34 +235,31 @@ struct ContentView: View {
         .padding(.vertical, 6)
     }
 
+    // 월~금 각각의 주간 카드
     private func weekDayCard(index: Int) -> some View {
         let day = viewModel.weeklyDay(at: index)
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center) {
                 Text("\(day.day)요일")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(.primary)
 
                 Spacer()
 
-                Picker("", selection: weeklyLeaveTypeBinding(index: index)) {
-                    ForEach(LeaveType.allCases) { leaveType in
-                        Text(leaveType.title).tag(leaveType)
-                    }
+                borderlessMenuPicker(
+                    selection: weeklyLeaveTypeBinding(index: index),
+                    width: 72
+                ) { leaveType in
+                    leaveType.title
                 }
-                .labelsHidden()
-                .frame(width: 110)
-                .pickerChrome()
-
-                Picker("", selection: weeklyModeBinding(index: index)) {
-                    ForEach(InputMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
+                
+                borderlessMenuPicker(
+                    selection: weeklyModeBinding(index: index),
+                    width: 62
+                ) { mode in
+                    mode.title
                 }
-                .labelsHidden()
-                .frame(width: 118)
-                .pickerChrome()
             }
 
             if day.leaveType != .annual {
@@ -281,6 +284,7 @@ struct ContentView: View {
         )
     }
 
+    // 주간 카드의 입력 행: 구간 입력 또는 합계 입력
     @ViewBuilder
     private func weeklyInputRow(day: DayWorkData, index: Int) -> some View {
         HStack(alignment: .center, spacing: 8) {
@@ -304,7 +308,7 @@ struct ContentView: View {
                     )
                 }
             } else {
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     manualField(title: "시간", text: weeklyManualHoursBinding(index: index), disabled: false)
                     manualField(title: "분", text: weeklyManualMinutesBinding(index: index), disabled: false)
                 }
@@ -322,42 +326,115 @@ struct ContentView: View {
         }
     }
 
+    // 주간 구간 입력 시간 슬롯
     @ViewBuilder
     private func weeklyTimeSlotField(timeText: String, selection: Binding<Date>, activate: @escaping () -> Void) -> some View {
         if timeText.isEmpty {
             Button("-- --") {
                 activate()
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .frame(width: 32, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.38))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.22), lineWidth: 0.8)
+            )
         } else {
             HStack(spacing: 0) {
-                DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
-                    .labelsHidden()
-                    .environment(\.locale, koreanLocale)
-                    .frame(width: 86, alignment: .leading)
+                BorderlessTimePicker(selection: selection)
+                    .frame(width: 88, height: 24)
             }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(1), lineWidth: 0.8)
+            )
         }
     }
 
+    // 주간 합계 입력 필드
     private func manualField(title: String, text: Binding<String>, disabled: Bool) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             TextField("0", text: text)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 60)
+                .textFieldStyle(.plain)
+                .frame(width: 28, alignment: .leading)
                 .disabled(disabled)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor).opacity(1))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(1), lineWidth: 0.8)
+                )
             Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
         }
     }
 
+    // 공통 섹션 제목
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.headline)
     }
 
+    // 주간 탭의 정상근무 / 구간 셀렉트 박스
+    private func borderlessMenuPicker<Option: CaseIterable & Hashable & Identifiable>(
+        selection: Binding<Option>,
+        width: CGFloat,
+        title: @escaping (Option) -> String
+    ) -> some View where Option.AllCases: RandomAccessCollection {
+        Menu {
+            ForEach(Array(Option.allCases), id: \.id) { option in
+                Button(title(option)) {
+                    selection.wrappedValue = option
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(title(selection.wrappedValue))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: width, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.3))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 0.8)
+            )
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+    }
+
+    // 오늘 탭의 출근 / 퇴근 시간 입력 행
     private func timePickerRow(title: String, selection: Binding<Date>) -> some View {
         HStack {
             Text(title)
@@ -381,22 +458,23 @@ struct ContentView: View {
             } else {
                 HStack(spacing: 0) {
                     BorderlessTimePicker(selection: selection)
-                        .frame(width: 108, height: 24)
+                        .frame(width: 88, height: 24)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.38))
+                        .fill(Color(nsColor: .windowBackgroundColor).opacity(1))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.22), lineWidth: 0.8)
+                        .stroke(Color(nsColor: .separatorColor).opacity(1), lineWidth: 0.8)
                 )
             }
         }
     }
 
+    // 오늘 탭 요약 행
     private func summaryLine(title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
@@ -408,6 +486,7 @@ struct ContentView: View {
         .font(.system(size: 13))
     }
 
+    // 오늘 탭 비어 있는 시간 placeholder 표시 제어
     private func placeholderText(for title: String) -> String? {
         switch title {
         case "출근 시간":
@@ -419,6 +498,7 @@ struct ContentView: View {
         }
     }
 
+    // 오늘 탭 placeholder 클릭 시 시간 입력 활성화
     private func activateTimeSelection(for title: String) {
         switch title {
         case "출근 시간":
@@ -430,6 +510,7 @@ struct ContentView: View {
         }
     }
 
+    // 주간 휴가 타입 바인딩
     private func weeklyLeaveTypeBinding(index: Int) -> Binding<LeaveType> {
         Binding(
             get: { viewModel.weeklyDay(at: index).leaveType },
@@ -437,6 +518,7 @@ struct ContentView: View {
         )
     }
 
+    // 주간 입력 모드(구간/합계) 바인딩
     private func weeklyModeBinding(index: Int) -> Binding<InputMode> {
         Binding(
             get: { viewModel.weeklyDay(at: index).mode },
@@ -444,6 +526,7 @@ struct ContentView: View {
         )
     }
 
+    // 주간 시작 시간 Date 바인딩
     private func weeklyStartDateBinding(index: Int) -> Binding<Date> {
         Binding(
             get: {
@@ -457,6 +540,7 @@ struct ContentView: View {
         )
     }
 
+    // 주간 종료 시간 Date 바인딩
     private func weeklyEndDateBinding(index: Int) -> Binding<Date> {
         Binding(
             get: {
@@ -470,6 +554,7 @@ struct ContentView: View {
         )
     }
 
+    // 저장된 HH:mm 문자열을 DatePicker용 Date로 변환
     private func dateFromWeeklyTimeString(_ time: String, fallbackHour: Int, fallbackMinute: Int) -> Date {
         let minutes = time.isEmpty ? (fallbackHour * 60 + fallbackMinute) : timeToMinutes(time)
         let hour = minutes / 60
@@ -477,6 +562,7 @@ struct ContentView: View {
         return Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()
     }
 
+    // DatePicker 값을 분 단위로 변환
     private func minutesFromDate(_ date: Date) -> Int {
         let components = Calendar.current.dateComponents([.hour, .minute], from: date)
         let hour = components.hour ?? 0
@@ -484,6 +570,7 @@ struct ContentView: View {
         return hour * 60 + minute
     }
 
+    // 주간 합계 입력 시간 바인딩
     private func weeklyManualHoursBinding(index: Int) -> Binding<String> {
         Binding(
             get: { viewModel.weeklyDay(at: index).manualHours },
@@ -491,6 +578,7 @@ struct ContentView: View {
         )
     }
 
+    // 주간 합계 입력 분 바인딩
     private func weeklyManualMinutesBinding(index: Int) -> Binding<String> {
         Binding(
             get: { viewModel.weeklyDay(at: index).manualMinutes },
@@ -499,6 +587,7 @@ struct ContentView: View {
     }
 }
 
+// 공통 패널 카드 스타일
 private struct PanelModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -515,6 +604,7 @@ private struct PanelModifier: ViewModifier {
     }
 }
 
+// 오늘 탭 시간 입력용 borderless AppKit NSDatePicker
 private struct BorderlessTimePicker: NSViewRepresentable {
     @Binding var selection: Date
 
@@ -558,28 +648,8 @@ private struct BorderlessTimePicker: NSViewRepresentable {
     }
 }
 
-private struct PickerChromeModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .underPageBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 0.8)
-            )
-    }
-}
-
 private extension View {
     func panelStyle() -> some View {
         modifier(PanelModifier())
-    }
-
-    func pickerChrome() -> some View {
-        modifier(PickerChromeModifier())
     }
 }
