@@ -33,17 +33,6 @@ struct ContentView: View {
                 Text("🏡")
                 Text("🏃‍♂️💨")
             }
-
-            Spacer()
-
-            HStack(spacing: 0) {
-                Text("Weekly 👉 ")
-                    .foregroundStyle(.secondary)
-                Link(
-                    "jibegaza.vercel.app",
-                    destination: URL(string: "https://jibegaza.vercel.app/")!
-                )
-            }
         }
         .font(.headline.weight(.medium))
     }
@@ -241,10 +230,11 @@ struct ContentView: View {
     private func weeklyInputRow(day: DayWorkData, index: Int) -> some View {
         HStack(alignment: .center, spacing: 8) {
             if day.mode == .range {
-                HStack(spacing: 3) {
-                    weeklyTimePickerField(
+                HStack(spacing: 10) {
+                    weeklyTimeSlotField(
+                        timeText: day.start,
                         selection: weeklyStartDateBinding(index: index),
-                        isLocked: false
+                        activate: { viewModel.updateWeeklyStart(idx: index, value: "09:00") }
                     )
 
                     Text("~")
@@ -252,9 +242,10 @@ struct ContentView: View {
                         .font(.body.weight(.medium))
                         .foregroundStyle(.secondary)
 
-                    weeklyTimePickerField(
+                    weeklyTimeSlotField(
+                        timeText: day.end,
                         selection: weeklyEndDateBinding(index: index),
-                        isLocked: false
+                        activate: { viewModel.updateWeeklyEnd(idx: index, value: "18:00") }
                     )
                 }
             } else {
@@ -275,13 +266,22 @@ struct ContentView: View {
         }
     }
 
-    private func weeklyTimePickerField(selection: Binding<Date>, isLocked: Bool) -> some View {
-        HStack(spacing: 0) {
-            DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
-                .labelsHidden()
-                .environment(\.locale, koreanLocale)
-                .frame(width: 92, alignment: .leading)
-                .disabled(isLocked)
+    @ViewBuilder
+    private func weeklyTimeSlotField(timeText: String, selection: Binding<Date>, activate: @escaping () -> Void) -> some View {
+        if timeText.isEmpty {
+            Button("-- --") {
+                activate()
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .frame(width: 32, alignment: .leading)
+        } else {
+            HStack(spacing: 0) {
+                DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .environment(\.locale, koreanLocale)
+                    .frame(width: 86, alignment: .leading)
+            }
         }
     }
 
