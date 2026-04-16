@@ -1,13 +1,25 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
+    private let topPanelHeight: CGFloat = 64
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             headerSection
-            controlsSection
-            summarySection
+            tabPickerSection
+            topControlSection
+
+            Group {
+                switch viewModel.selectedTab {
+                case .today:
+                    todayTabSection
+                case .week:
+                    weekTabSection
+                }
+            }
+
             footerSection
         }
         .padding(16)
@@ -35,36 +47,68 @@ struct ContentView: View {
         .font(.headline.weight(.medium))
     }
 
-    private var controlsSection: some View {
+    private var topControlSection: some View {
+        HStack(alignment: .top, spacing: 12) {
+            menuBarSettingsSection
+
+            if viewModel.selectedTab == .week {
+                weekSummarySection
+            }
+        }
+    }
+
+    private var menuBarSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("메뉴바 설정")
+                .font(.body.weight(.bold))
+
+            Picker("", selection: viewModel.menuBarMetricBinding) {
+                Text("⏱️ 오늘 총 근무시간").tag(MenuBarMetric.worked)
+                Text("⏳ 오늘 남은 근무시간").tag(MenuBarMetric.remaining)
+            }
+            .labelsHidden()
+            .pickerStyle(.radioGroup)
+        }
+        .frame(height: topPanelHeight, alignment: .topLeading)
+        .frame(maxWidth: viewModel.selectedTab == .week ? 200 : .infinity, alignment: .leading)
+        .cardStyle()
+    }
+
+    private var weekSummarySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("주간 시간 계산")
+                .font(.body.weight(.bold))
+            HStack {
+                weekSummaryCard(title: "주간 합계", value: viewModel.weekTotalText)
+                weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText)
+            }
+        }
+        .frame(height: topPanelHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle()
+    }
+
+    private var tabPickerSection: some View {
+        Picker("", selection: $viewModel.selectedTab) {
+            ForEach(WorkTab.allCases) { tab in
+                Text(tab.title).tag(tab)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+    }
+
+    private var todayTabSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 16) {
-                    Text("메뉴바 설정")
-                        .font(.body.weight(.bold))
-
-                    Picker("", selection: viewModel.menuBarDisplayModeBinding) {
-                        menuBarDisplayModeOption(TimeCalculatorViewModel.MenuBarDisplayMode.totalWorkedToday)
-                        menuBarDisplayModeOption(TimeCalculatorViewModel.MenuBarDisplayMode.remainingWorkToday)
-                    }
-                    .pickerStyle(.radioGroup)
+                Picker("목표 근무 시간", selection: viewModel.targetHoursBinding) {
+                    targetHourOption(6)
+                    targetHourOption(7)
+                    targetHourOption(8)
+                    targetHourOption(9)
                 }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 16) {
-                    // Text("목표 근무 시간")
-                    //     .font(.subheadline.weight(.semibold))
-                    //     .foregroundStyle(.secondary)
-
-                    Picker("목표 근무 시간", selection: viewModel.targetHoursBinding) {
-                        targetHourOption(6)
-                        targetHourOption(7)
-                        targetHourOption(8)
-                        targetHourOption(9)
-                    }
-                    .font(.body.weight(.bold))
-                    .pickerStyle(.segmented)
-                }
+                .font(.body.weight(.bold))
+                .pickerStyle(.segmented)
 
                 Divider()
 
@@ -73,32 +117,42 @@ struct ContentView: View {
                 timePickerRow(title: "퇴근 시간", selection: viewModel.endTimeBinding)
                     .font(.body.weight(.bold))
             }
+            .cardStyle()
+
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader("요약")
+                VStack(alignment: .leading, spacing: 10) {
+                    summaryLine(title: "목표 근무 시간", value: viewModel.formattedTargetWork)
+                    summaryLine(title: "출근 시간", value: viewModel.formattedStartTime)
+                    summaryLine(title: "퇴근 시간", value: viewModel.formattedEndTime)
+                    summaryLine(title: "오늘 총 근무시간", value: viewModel.formattedWorkedToday)
+                    summaryLine(title: "오늘 남은 근무시간", value: viewModel.formattedRemainingToday)
+                }
+            }
+            .cardStyle()
         }
-        .cardStyle()
     }
 
-    private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("요약")
-
-            VStack(alignment: .leading, spacing: 10) {
-                summaryLine(title: "목표 근무 시간", value: viewModel.formattedTargetWork)
-                summaryLine(title: "출근 시간", value: viewModel.formattedStartTime)
-                summaryLine(title: "퇴근 시간", value: viewModel.formattedEndTime)
-                summaryLine(title: "오늘 총 근무시간", value: viewModel.formattedWorkedToday)
-                summaryLine(title: "오늘 남은 근무시간", value: viewModel.formattedRemainingToday)
+    private var weekTabSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(weekDays.enumerated()), id: \.offset) { item in
+                        weekDayCard(index: item.offset)
+                    }
+                }
             }
+            .frame(height: 560)
         }
-        .cardStyle()
     }
 
     private var footerSection: some View {
-        HStack(alignment: .center) {
+        HStack {
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
                 Label("앱 종료", systemImage: "power")
-                .imageScale(.small)
+                    .imageScale(.small)
             }
             .keyboardShortcut("q")
             .buttonStyle(.bordered)
@@ -107,14 +161,150 @@ struct ContentView: View {
             Spacer()
 
             Button {
-                viewModel.resetMenuBarAndTimes()
+                if viewModel.selectedTab == .today {
+                    viewModel.resetTodayState()
+                } else {
+                    viewModel.resetWeeklyState()
+                }
             } label: {
                 Label("Reset", systemImage: "arrow.counterclockwise")
-                .imageScale(.small)
+                    .imageScale(.small)
             }
             .buttonStyle(.bordered)
             .tint(Color(nsColor: .systemGray))
         }
+    }
+
+    private func weekSummaryCard(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 6)
+    }
+
+    private func weekDayCard(index: Int) -> some View {
+        let day = viewModel.weeklyDay(at: index)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center) {
+                Text("\(day.day)요일")
+                    .font(.headline)
+
+                Spacer()
+
+                Picker("", selection: weeklyLeaveTypeBinding(index: index)) {
+                    ForEach(LeaveType.allCases) { leaveType in
+                        Text(leaveType.title).tag(leaveType)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 110)
+
+                Picker("", selection: weeklyModeBinding(index: index)) {
+                    ForEach(InputMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 118)
+            }
+
+            if day.leaveType != .annual {
+                if day.mode == .range {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            timeTextField(
+                                title: "출근",
+                                text: weeklyStartBinding(index: index),
+                                isLocked: day.lockStart,
+                                toggleLock: { viewModel.toggleWeeklyStartLock(idx: index) }
+                            )
+
+                            Text("~")
+                                .foregroundStyle(.secondary)
+
+                            timeTextField(
+                                title: "퇴근",
+                                text: weeklyEndBinding(index: index),
+                                isLocked: day.lockEnd,
+                                toggleLock: { viewModel.toggleWeeklyEndLock(idx: index) }
+                            )
+                        }
+
+                        if day.leaveType == .half || day.leaveType == .halfHalf {
+                            Button("오늘 8시간 맞추기") {
+                                viewModel.fitWeeklyDayToEightHours(idx: index)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                } else {
+                    HStack(spacing: 10) {
+                        lockButton(isLocked: day.lockManual) {
+                            viewModel.toggleWeeklyManualLock(idx: index)
+                        }
+
+                        manualField(title: "시간", text: weeklyManualHoursBinding(index: index), disabled: day.lockManual)
+                        manualField(title: "분", text: weeklyManualMinutesBinding(index: index), disabled: day.lockManual)
+                    }
+                }
+            }
+
+            HStack {
+                Button("Delete") {
+                    viewModel.resetWeeklyDay(idx: index)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Text("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.6)
+        )
+    }
+
+    private func timeTextField(title: String, text: Binding<String>, isLocked: Bool, toggleLock: @escaping () -> Void) -> some View {
+        HStack(spacing: 6) {
+            TextField(title, text: text)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 74)
+                .disabled(isLocked)
+
+            lockButton(isLocked: isLocked, action: toggleLock)
+        }
+    }
+
+    private func manualField(title: String, text: Binding<String>, disabled: Bool) -> some View {
+        HStack(spacing: 4) {
+            TextField("0", text: text)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 60)
+                .disabled(disabled)
+            Text(title)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func lockButton(isLocked: Bool, action: @escaping () -> Void) -> some View {
+        Button(isLocked ? "🔒" : "🔓", action: action)
+            .buttonStyle(.borderless)
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -141,10 +331,6 @@ struct ContentView: View {
 
     private func targetHourOption(_ hours: Int) -> some View {
         Text("\(hours)h").tag(hours)
-    }
-
-    private func menuBarDisplayModeOption(_ mode: TimeCalculatorViewModel.MenuBarDisplayMode) -> some View {
-        Text("\(mode.icon) \(mode.label)").tag(Optional(mode))
     }
 
     private func summaryLine(title: String, value: String) -> some View {
@@ -178,6 +364,48 @@ struct ContentView: View {
         default:
             break
         }
+    }
+
+    private func weeklyLeaveTypeBinding(index: Int) -> Binding<LeaveType> {
+        Binding(
+            get: { viewModel.weeklyDay(at: index).leaveType },
+            set: { viewModel.updateWeeklyLeaveType(idx: index, leaveType: $0) }
+        )
+    }
+
+    private func weeklyModeBinding(index: Int) -> Binding<InputMode> {
+        Binding(
+            get: { viewModel.weeklyDay(at: index).mode },
+            set: { _ in viewModel.toggleWeeklyMode(idx: index) }
+        )
+    }
+
+    private func weeklyStartBinding(index: Int) -> Binding<String> {
+        Binding(
+            get: { viewModel.weeklyDay(at: index).start },
+            set: { viewModel.updateWeeklyStart(idx: index, value: $0) }
+        )
+    }
+
+    private func weeklyEndBinding(index: Int) -> Binding<String> {
+        Binding(
+            get: { viewModel.weeklyDay(at: index).end },
+            set: { viewModel.updateWeeklyEnd(idx: index, value: $0) }
+        )
+    }
+
+    private func weeklyManualHoursBinding(index: Int) -> Binding<String> {
+        Binding(
+            get: { viewModel.weeklyDay(at: index).manualHours },
+            set: { viewModel.updateWeeklyManualHours(idx: index, value: $0) }
+        )
+    }
+
+    private func weeklyManualMinutesBinding(index: Int) -> Binding<String> {
+        Binding(
+            get: { viewModel.weeklyDay(at: index).manualMinutes },
+            set: { viewModel.updateWeeklyManualMinutes(idx: index, value: $0) }
+        )
     }
 }
 
