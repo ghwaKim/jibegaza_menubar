@@ -24,7 +24,16 @@ struct ContentView: View {
             footerSection
         }
         .padding(16)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .underPageBackgroundColor)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
     }
 
     private var headerSection: some View {
@@ -61,7 +70,7 @@ struct ContentView: View {
         }
         .frame(height: topPanelHeight, alignment: .topLeading)
         .frame(maxWidth: viewModel.selectedTab == .week ? 200 : .infinity, alignment: .leading)
-        .cardStyle()
+        .panelStyle()
     }
 
     private var weekSummarySection: some View {
@@ -75,7 +84,7 @@ struct ContentView: View {
         }
         .frame(height: topPanelHeight, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle()
+        .panelStyle()
     }
 
     private var tabPickerSection: some View {
@@ -91,14 +100,7 @@ struct ContentView: View {
     private var todayTabSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("목표 근무 시간", selection: viewModel.targetHoursBinding) {
-                    targetHourOption(6)
-                    targetHourOption(7)
-                    targetHourOption(8)
-                    targetHourOption(9)
-                }
-                .font(.body.weight(.bold))
-                .pickerStyle(.segmented)
+                targetHoursSelector
 
                 Divider()
 
@@ -107,7 +109,7 @@ struct ContentView: View {
                 timePickerRow(title: "퇴근 시간", selection: viewModel.endTimeBinding)
                     .font(.body.weight(.bold))
             }
-            .cardStyle()
+            .panelStyle()
 
             VStack(alignment: .leading, spacing: 12) {
                 sectionHeader("요약")
@@ -119,7 +121,55 @@ struct ContentView: View {
                     summaryLine(title: "오늘 남은 근무시간", value: viewModel.formattedRemainingToday)
                 }
             }
-            .cardStyle()
+            .panelStyle()
+        }
+    }
+
+    private var targetHoursSelector: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text("목표 근무 시간")
+                .font(.body.weight(.bold))
+
+            HStack(spacing: 6) {
+                ForEach([6, 7, 8, 9], id: \.self) { hour in
+                    Button {
+                        viewModel.targetHoursBinding.wrappedValue = hour
+                    } label: {
+                        Text("\(hour)h")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .foregroundStyle(
+                                viewModel.targetHoursBinding.wrappedValue == hour
+                                    ? Color.white
+                                    : Color.primary.opacity(0.7)
+                            )
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(
+                                        viewModel.targetHoursBinding.wrappedValue == hour
+                                            ? Color(nsColor: .tertiaryLabelColor)
+                                            : Color(nsColor: .underPageBackgroundColor).opacity(0.4)
+                                    )
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(
+                                        viewModel.targetHoursBinding.wrappedValue == hour
+                                            ? Color.clear
+                                            : Color(nsColor: .separatorColor).opacity(0.22),
+                                        lineWidth: 0.8
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+            )
         }
     }
 
@@ -168,7 +218,9 @@ struct ContentView: View {
     private func weekSummaryCard(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.caption)
+                .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+                .tracking(0.6)
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.headline.weight(.semibold))
@@ -183,7 +235,8 @@ struct ContentView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center) {
                 Text("\(day.day)요일")
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
 
                 Spacer()
 
@@ -194,6 +247,7 @@ struct ContentView: View {
                 }
                 .labelsHidden()
                 .frame(width: 110)
+                .pickerChrome()
 
                 Picker("", selection: weeklyModeBinding(index: index)) {
                     ForEach(InputMode.allCases) { mode in
@@ -202,6 +256,7 @@ struct ContentView: View {
                 }
                 .labelsHidden()
                 .frame(width: 118)
+                .pickerChrome()
             }
 
             if day.leaveType != .annual {
@@ -263,6 +318,7 @@ struct ContentView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .tint(Color(nsColor: .systemGray))
+            .font(.caption.weight(.medium))
         }
     }
 
@@ -292,6 +348,7 @@ struct ContentView: View {
                 .frame(width: 60)
                 .disabled(disabled)
             Text(title)
+                .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
         }
     }
@@ -309,17 +366,35 @@ struct ContentView: View {
                 Button(placeholder) {
                     activateTimeSelection(for: title)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.38))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.22), lineWidth: 0.8)
+                )
             } else {
-                DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
-                    .labelsHidden()
+                HStack(spacing: 0) {
+                    BorderlessTimePicker(selection: selection)
+                        .frame(width: 108, height: 24)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.38))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.22), lineWidth: 0.8)
+                )
             }
         }
-    }
-
-    private func targetHourOption(_ hours: Int) -> some View {
-        Text("\(hours)h").tag(hours)
     }
 
     private func summaryLine(title: String, value: String) -> some View {
@@ -424,23 +499,87 @@ struct ContentView: View {
     }
 }
 
-private struct CardModifier: ViewModifier {
+private struct PanelModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(14)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.96))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.6)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.65), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.06), radius: 16, x: 0, y: 8)
+    }
+}
+
+private struct BorderlessTimePicker: NSViewRepresentable {
+    @Binding var selection: Date
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    func makeNSView(context: Context) -> NSDatePicker {
+        let picker = NSDatePicker()
+        picker.datePickerElements = [.hourMinute]
+        picker.datePickerStyle = .textFieldAndStepper
+        picker.datePickerMode = .single
+        picker.locale = Locale(identifier: "ko_KR")
+        picker.isBordered = false
+        picker.drawsBackground = false
+        picker.backgroundColor = .clear
+        picker.focusRingType = .none
+        picker.font = .systemFont(ofSize: NSFont.systemFontSize)
+        picker.target = context.coordinator
+        picker.action = #selector(Coordinator.valueChanged(_:))
+        return picker
+    }
+
+    func updateNSView(_ nsView: NSDatePicker, context: Context) {
+        if nsView.dateValue != selection {
+            nsView.dateValue = selection
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        @Binding var selection: Date
+
+        init(selection: Binding<Date>) {
+            _selection = selection
+        }
+
+        @objc func valueChanged(_ sender: NSDatePicker) {
+            selection = sender.dateValue
+        }
+    }
+}
+
+private struct PickerChromeModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .underPageBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 0.8)
             )
     }
 }
 
 private extension View {
-    func cardStyle() -> some View {
-        modifier(CardModifier())
+    func panelStyle() -> some View {
+        modifier(PanelModifier())
+    }
+
+    func pickerChrome() -> some View {
+        modifier(PickerChromeModifier())
     }
 }
