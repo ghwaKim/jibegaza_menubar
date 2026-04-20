@@ -11,6 +11,9 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 RELEASE_BINARY="$ROOT_DIR/.build/release/$EXECUTABLE_NAME"
 ZIP_PATH="$ROOT_DIR/dist/$APP_NAME.zip"
 ICON_PATH="$ROOT_DIR/Resources/AppIcon.icns"
+EXPORT_IMAGE_PATH="$ROOT_DIR/Assets/Export/앱_실행_방법.png"
+DIST_EXPORT_IMAGE_PATH="$ROOT_DIR/dist/앱_실행_방법.png"
+PACKAGE_DIR="$ROOT_DIR/dist/$APP_NAME Package"
 
 mkdir -p "$ROOT_DIR/dist"
 
@@ -34,6 +37,11 @@ if [[ -f "$ICON_PATH" ]]; then
   cp "$ICON_PATH" "$RESOURCES_DIR/AppIcon.icns"
 fi
 
+if [[ -f "$EXPORT_IMAGE_PATH" ]]; then
+  echo "Copying export image..."
+  cp "$EXPORT_IMAGE_PATH" "$DIST_EXPORT_IMAGE_PATH"
+fi
+
 if command -v codesign >/dev/null 2>&1; then
   echo "Applying ad-hoc code signature..."
   codesign --force --deep --sign - "$APP_DIR"
@@ -41,7 +49,16 @@ fi
 
 echo "Creating zip for sharing..."
 rm -f "$ZIP_PATH"
-ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
+rm -rf "$PACKAGE_DIR"
+mkdir -p "$PACKAGE_DIR"
+cp -R "$APP_DIR" "$PACKAGE_DIR/"
+
+if [[ -f "$DIST_EXPORT_IMAGE_PATH" ]]; then
+  cp "$DIST_EXPORT_IMAGE_PATH" "$PACKAGE_DIR/"
+fi
+
+ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ZIP_PATH"
+rm -rf "$PACKAGE_DIR"
 
 echo
 echo "Done."
