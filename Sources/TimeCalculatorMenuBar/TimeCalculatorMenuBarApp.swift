@@ -16,11 +16,14 @@ struct TimeCalculatorMenuBarApp: App {
         MenuBarExtra {
             ContentView()
                 .environmentObject(viewModel)
-                .frame(width: 380)
+                .frame(width: 430)
         } label: {
-            Text("\(viewModel.menuBarIcon)\(viewModel.menuBarTitle)")
-                .monospacedDigit()
-                .frame(width: 86, alignment: .leading)
+            (
+                Text(viewModel.menuBarEmoji)
+                + (viewModel.menuBarTitle.isEmpty ? Text("") : Text(" "))
+                + Text(viewModel.menuBarTitle).monospacedDigit()
+            )
+            .frame(width: 116, alignment: .leading)
         }
         .menuBarExtraStyle(.window)
     }
