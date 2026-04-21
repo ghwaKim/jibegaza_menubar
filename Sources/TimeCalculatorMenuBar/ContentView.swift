@@ -5,6 +5,16 @@ struct ContentView: View {
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
     private let koreanLocale = Locale(identifier: "ko_KR")
 
+private var appVersionText: String {
+    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    
+    if let version = version {
+        return "v\(version)"
+    } else {
+        return "알 수 없음"
+    }
+}
+
     // 팝오버 전체 레이아웃
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -34,8 +44,13 @@ struct ContentView: View {
                 Text("🏡")
                 Text("🏃‍♂️💨")
             }
+            Spacer()
+            Text(appVersionText)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
         }
         .font(.headline.weight(.medium))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // 메뉴바 설정 + 주간 요약 상단 영역

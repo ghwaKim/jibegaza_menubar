@@ -87,7 +87,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         switch mode.metric {
         case .worked:
-            return compactDuration(min(workedMinutesToday, 9 * 60))
+            return compactDuration(workedMinutesToday)
         case .remaining:
             return compactDuration(remainingWorkMinutesToday)
         case .hidden:
@@ -112,7 +112,11 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     var formattedWorkedToday: String {
-        formatMinutesToKorean(workedMinutesToday)
+        let workedText = formatMinutesToKorean(workedMinutesToday)
+        guard workedMinutesToday > maxDailyMinutes else {
+            return workedText
+        }
+        return "\(workedText) (인정시간: \(formatMinutesToKorean(recognizedWorkedMinutesToday)))"
     }
 
     var formattedRemainingToday: String {
@@ -396,7 +400,7 @@ final class TimeCalculatorViewModel: ObservableObject {
             return 0
         }
 
-        let effectiveEnd = min(currentTime, endTime)
+        let effectiveEnd = currentTime
         let rawWorked = max(0, Int(effectiveEnd.timeIntervalSince(startTime) / 60))
         let breakOverlap = overlapMinutes(
             firstStart: startTime,
@@ -405,6 +409,10 @@ final class TimeCalculatorViewModel: ObservableObject {
             secondEnd: fixedBreakEnd
         )
         return max(0, rawWorked - breakOverlap)
+    }
+
+    private var recognizedWorkedMinutesToday: Int {
+        min(workedMinutesToday, maxDailyMinutes)
     }
 
     private var remainingWorkMinutesToday: Int {
