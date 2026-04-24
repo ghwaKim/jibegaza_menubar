@@ -141,44 +141,81 @@ private var appVersionText: String {
 
     // 목표 근무 시간 커스텀 세그먼트 버튼
     private var targetHoursSelector: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text("목표 근무 시간")
-                .font(.body.weight(.bold))
-            Spacer()
-            HStack(spacing: 6) {
-                ForEach([6, 7, 8, 9], id: \.self) { hour in
-                    Button {
-                        viewModel.targetHoursBinding.wrappedValue = hour
-                    } label: {
-                        Text("\(hour)h")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(width: 44)
-                            .padding(.vertical, 4)
-                            .foregroundStyle(
-                                viewModel.targetHoursBinding.wrappedValue == hour
-                                    ? Color.white
-                                    : Color.primary.opacity(0.7)
-                            )
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(
-                                        viewModel.targetHoursBinding.wrappedValue == hour
-                                            ? Color.accentColor 
-                                            : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
-                                    )
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(
-                                        viewModel.targetHoursBinding.wrappedValue == hour
-                                            ? Color.clear
-                                            : Color(nsColor: .separatorColor).opacity(0.22),
-                                        lineWidth: 0.8
-                                    )
-                            )
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                Text("목표 근무 시간")
+                    .font(.body.weight(.bold))
+                Spacer()
+                HStack(spacing: 6) {
+                    ForEach(TodayTargetSelection.allCases) { selection in
+                        Button {
+                            viewModel.todayTargetSelectionBinding.wrappedValue = selection
+                        } label: {
+                            Text(selection.title)
+                                .font(.subheadline.weight(.semibold))
+                                .frame(width: selection == .manual ? 60 : 44)
+                                .padding(.vertical, 4)
+                                .foregroundStyle(
+                                    viewModel.todayTargetSelectionBinding.wrappedValue == selection
+                                        ? Color.white
+                                        : Color.primary.opacity(0.7)
+                                )
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(
+                                            viewModel.todayTargetSelectionBinding.wrappedValue == selection
+                                                ? Color.accentColor
+                                                : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
+                                        )
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(
+                                            viewModel.todayTargetSelectionBinding.wrappedValue == selection
+                                                ? Color.clear
+                                                : Color(nsColor: .separatorColor).opacity(0.22),
+                                            lineWidth: 0.8
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+            }
+
+            if viewModel.shouldShowManualTargetInputs {
+                HStack(alignment: .center, spacing: 12) {
+                    HStack(spacing: 12) {
+                        manualField(title: "시간", text: viewModel.targetManualHoursBinding, disabled: false)
+                        manualField(title: "분", text: viewModel.targetManualMinutesBinding, disabled: false)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if viewModel.canRestoreAutoSuggestedTarget {
+                        Button("자동계산") {
+                            viewModel.restoreAutoSuggestedTarget()
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.9))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color(nsColor: .separatorColor).opacity(1), lineWidth: 0.9)
+                        )
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            if viewModel.shouldShowTodayTargetGuideText, let guideText = viewModel.todayTargetGuideText {
+                Text(guideText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

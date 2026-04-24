@@ -8,10 +8,15 @@ final class TimeCalculatorViewModel: ObservableObject {
     @Published private(set) var startTime: Date
     @Published private(set) var endTime: Date
     @Published private(set) var targetWorkMinutes: Int
+    @Published private(set) var baseTargetWorkMinutes: Int
     @Published private(set) var menuBarDisplayMode: MenuBarDisplayMode?
     @Published private(set) var isStartTimeUnset: Bool
     @Published private(set) var isEndTimeUnset: Bool
     @Published private(set) var weeklyData: [DayWorkData]
+    @Published private(set) var todayTargetMode: TodayTargetMode
+    @Published private(set) var targetInputHours: String
+    @Published private(set) var targetInputMinutes: String
+    @Published private(set) var todayTargetGuideText: String?
     @Published private var currentTime: Date
 
     private let defaults = UserDefaults.standard
@@ -21,11 +26,17 @@ final class TimeCalculatorViewModel: ObservableObject {
     private var trackedDayStart: Date
     private var autoFillTarget: AutoFillTarget?
     private var excludedAutoFillIndexes: [Int]
+    private var manualOverrideTargetMinutes: Int?
+    private var autoSuggestedTargetMinutes: Int?
+    private var isManualTargetSelectionActive: Bool
 
     private enum Keys {
         static let startTime = "startTime"
         static let endTime = "endTime"
         static let targetWorkMinutes = "targetWorkMinutes"
+        static let baseTargetWorkMinutes = "baseTargetWorkMinutes"
+        static let manualOverrideTargetMinutes = "manualOverrideTargetMinutes"
+        static let isManualTargetSelectionActive = "isManualTargetSelectionActive"
         static let lastEditedField = "lastEditedField"
         static let menuBarDisplayMode = "menuBarDisplayMode"
         static let lastActiveDayStart = "lastActiveDayStart"
@@ -50,25 +61,34 @@ final class TimeCalculatorViewModel: ObservableObject {
         currentTime = now
         trackedDayStart = calendar.startOfDay(for: now)
 
-        let defaultStart = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: now) ?? now
-        let initialTargetWorkMinutes = defaults.object(forKey: Keys.targetWorkMinutes) as? Int ?? 8 * 60
+        let defaultStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: now) ?? now
+        let legacyTargetMinutes = defaults.object(forKey: Keys.targetWorkMinutes) as? Int ?? 8 * 60
+        let initialBaseTargetWorkMinutes = defaults.object(forKey: Keys.baseTargetWorkMinutes) as? Int ?? legacyTargetMinutes
         let initialStartTime = defaults.object(forKey: Keys.startTime) as? Date ?? defaultStart
         let savedEditedField = defaults.string(forKey: Keys.lastEditedField)
         lastEditedField = EditedField(rawValue: savedEditedField ?? "") ?? .startTime
 
         let initialEndTime = defaults.object(forKey: Keys.endTime) as? Date
-            ?? calendar.date(byAdding: .minute, value: initialTargetWorkMinutes + fixedBreakMinutes, to: initialStartTime)
+            ?? calendar.date(byAdding: .minute, value: initialBaseTargetWorkMinutes + fixedBreakMinutes, to: initialStartTime)
             ?? initialStartTime
 
-        targetWorkMinutes = initialTargetWorkMinutes
+        targetWorkMinutes = initialBaseTargetWorkMinutes
+        baseTargetWorkMinutes = initialBaseTargetWorkMinutes
         startTime = initialStartTime
         endTime = initialEndTime
         menuBarDisplayMode = Self.loadMenuBarDisplayMode(from: defaults)
         isStartTimeUnset = defaults.object(forKey: Keys.isStartTimeUnset) as? Bool ?? false
         isEndTimeUnset = defaults.object(forKey: Keys.isEndTimeUnset) as? Bool ?? false
         weeklyData = Self.loadWeeklyData(from: defaults)
+        todayTargetMode = .preset
+        targetInputHours = String(initialBaseTargetWorkMinutes / 60)
+        targetInputMinutes = String(format: "%02d", initialBaseTargetWorkMinutes % 60)
+        todayTargetGuideText = nil
         autoFillTarget = Self.loadAutoFillTarget(from: defaults)
         excludedAutoFillIndexes = defaults.array(forKey: Keys.excludedAutoFillIndexes) as? [Int] ?? []
+        manualOverrideTargetMinutes = defaults.object(forKey: Keys.manualOverrideTargetMinutes) as? Int
+        isManualTargetSelectionActive = defaults.object(forKey: Keys.isManualTargetSelectionActive) as? Bool ?? false
+        autoSuggestedTargetMinutes = nil
 
         if shouldResetForNewDay(referenceDate: now) {
             resetTodayForNewDay(referenceDate: now)
@@ -76,7 +96,7 @@ final class TimeCalculatorViewModel: ObservableObject {
             defaults.set(trackedDayStart, forKey: Keys.lastActiveDayStart)
         }
 
-        alignTimesUsingLastEditedField()
+        refreshTodayTargetFromCurrentContext(syncInputFields: true)
         startTimer()
     }
 
@@ -152,11 +172,60 @@ final class TimeCalculatorViewModel: ObservableObject {
         )
     }
 
-    var targetHoursBinding: Binding<Int> {
+    var selectedPresetHoursBinding: Binding<Int> {
         Binding(
-            get: { self.targetWorkMinutes / 60 },
-            set: { self.updateTargetHours($0) }
+            get: { self.baseTargetWorkMinutes / 60 },
+            set: { self.updatePresetTargetHours($0) }
         )
+    }
+
+    var todayTargetSelectionBinding: Binding<TodayTargetSelection> {
+        Binding(
+            get: { self.todayTargetSelection },
+            set: { self.updateTodayTargetSelection($0) }
+        )
+    }
+
+    var shouldShowManualTargetInputs: Bool {
+        todayTargetSelection == .manual
+    }
+
+    var shouldShowTodayTargetGuideText: Bool {
+        todayTargetSelection == .manual
+    }
+
+    var targetManualHoursBinding: Binding<String> {
+        Binding(
+            get: { self.targetInputHours },
+            set: { self.updateTodayManualTargetHours($0) }
+        )
+    }
+
+    var targetManualMinutesBinding: Binding<String> {
+        Binding(
+            get: { self.targetInputMinutes },
+            set: { self.updateTodayManualTargetMinutes($0) }
+        )
+    }
+
+    var canRestoreAutoSuggestedTarget: Bool {
+        manualOverrideTargetMinutes != nil && autoSuggestedTargetMinutes != nil
+    }
+
+    private var todayTargetSelection: TodayTargetSelection {
+        if isManualTargetSelectionActive {
+            return .manual
+        }
+
+        if let manualOverrideTargetMinutes {
+            return selection(for: manualOverrideTargetMinutes)
+        }
+
+        if todayTargetMode == .autoSuggested {
+            return selection(for: targetWorkMinutes)
+        }
+
+        return selection(for: baseTargetWorkMinutes)
     }
 
     func updateStartTime(_ newValue: Date) {
@@ -177,25 +246,61 @@ final class TimeCalculatorViewModel: ObservableObject {
         persistTodayState()
     }
 
-    func updateTargetHours(_ hours: Int) {
+    func updatePresetTargetHours(_ hours: Int) {
         if isStartTimeUnset || isEndTimeUnset {
             reactivateTodayInputs()
         }
-        targetWorkMinutes = hours * 60
-        alignTimesUsingLastEditedField()
+        baseTargetWorkMinutes = hours * 60
+        isManualTargetSelectionActive = false
+        if autoSuggestedTargetMinutes != nil {
+            manualOverrideTargetMinutes = baseTargetWorkMinutes
+        } else {
+            manualOverrideTargetMinutes = nil
+        }
+        refreshTodayTargetFromCurrentContext(syncInputFields: true)
+        persistTodayState()
+    }
+
+    func updateTodayTargetSelection(_ selection: TodayTargetSelection) {
+        switch selection {
+        case .manual:
+            isManualTargetSelectionActive = true
+            if manualOverrideTargetMinutes == nil {
+                manualOverrideTargetMinutes = targetWorkMinutes
+            }
+            refreshTodayTargetFromCurrentContext(syncInputFields: true)
+        case .sixHours, .sevenHours, .eightHours, .nineHours:
+            guard let presetMinutes = selection.presetMinutes else {
+                return
+            }
+            if isStartTimeUnset || isEndTimeUnset {
+                reactivateTodayInputs()
+            }
+            baseTargetWorkMinutes = presetMinutes
+            isManualTargetSelectionActive = false
+            if autoSuggestedTargetMinutes != nil {
+                manualOverrideTargetMinutes = baseTargetWorkMinutes
+            } else {
+                manualOverrideTargetMinutes = nil
+            }
+            refreshTodayTargetFromCurrentContext(syncInputFields: true)
+        }
         persistTodayState()
     }
 
     func resetTodayState() {
         let now = currentTime
-        targetWorkMinutes = 8 * 60
-        let defaultStart = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: now) ?? now
+        baseTargetWorkMinutes = 8 * 60
+        let defaultStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: now) ?? now
         startTime = defaultStart
-        endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: defaultStart)
+        endTime = addingMinutes(baseTargetWorkMinutes + fixedBreakMinutes, to: defaultStart)
         isStartTimeUnset = true
         isEndTimeUnset = true
         lastEditedField = .startTime
+        manualOverrideTargetMinutes = nil
+        isManualTargetSelectionActive = false
         setMenuBarDisplayMode(nil)
+        refreshTodayTargetFromCurrentContext(syncInputFields: true)
         persistTodayState()
     }
 
@@ -213,11 +318,34 @@ final class TimeCalculatorViewModel: ObservableObject {
         persistTodayState()
     }
 
+    func restoreAutoSuggestedTarget() {
+        guard autoSuggestedTargetMinutes != nil else {
+            return
+        }
+        manualOverrideTargetMinutes = nil
+        isManualTargetSelectionActive = false
+        refreshTodayTargetFromCurrentContext(syncInputFields: true)
+        persistTodayState()
+    }
+
     func resetWeeklyState() {
         weeklyData = defaultWeekData()
         autoFillTarget = nil
         excludedAutoFillIndexes = []
+        refreshTodayTargetFromCurrentContext(syncInputFields: manualOverrideTargetMinutes == nil)
         persistWeeklyState()
+    }
+
+    func updateTodayManualTargetHours(_ value: String) {
+        isManualTargetSelectionActive = true
+        targetInputHours = sanitizeTodayHourString(value)
+        applyTodayManualTargetFromInputs()
+    }
+
+    func updateTodayManualTargetMinutes(_ value: String) {
+        isManualTargetSelectionActive = true
+        targetInputMinutes = sanitizeTodayMinuteString(value)
+        applyTodayManualTargetFromInputs()
     }
 
     func weeklyDay(at idx: Int) -> DayWorkData {
@@ -365,14 +493,17 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     private func resetTodayForNewDay(referenceDate: Date) {
         trackedDayStart = calendar.startOfDay(for: referenceDate)
-        let defaultStart = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: referenceDate) ?? referenceDate
+        let defaultStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: referenceDate) ?? referenceDate
         startTime = defaultStart
-        endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: defaultStart)
+        endTime = addingMinutes(baseTargetWorkMinutes + fixedBreakMinutes, to: defaultStart)
         isStartTimeUnset = true
         isEndTimeUnset = true
         lastEditedField = .startTime
+        manualOverrideTargetMinutes = nil
+        isManualTargetSelectionActive = false
         setMenuBarDisplayMode(nil)
         defaults.set(trackedDayStart, forKey: Keys.lastActiveDayStart)
+        refreshTodayTargetFromCurrentContext(syncInputFields: true)
         persistTodayState()
     }
 
@@ -468,6 +599,13 @@ final class TimeCalculatorViewModel: ObservableObject {
         defaults.set(startTime, forKey: Keys.startTime)
         defaults.set(endTime, forKey: Keys.endTime)
         defaults.set(targetWorkMinutes, forKey: Keys.targetWorkMinutes)
+        defaults.set(baseTargetWorkMinutes, forKey: Keys.baseTargetWorkMinutes)
+        if let manualOverrideTargetMinutes {
+            defaults.set(manualOverrideTargetMinutes, forKey: Keys.manualOverrideTargetMinutes)
+        } else {
+            defaults.removeObject(forKey: Keys.manualOverrideTargetMinutes)
+        }
+        defaults.set(isManualTargetSelectionActive, forKey: Keys.isManualTargetSelectionActive)
         defaults.set(isStartTimeUnset, forKey: Keys.isStartTimeUnset)
         defaults.set(isEndTimeUnset, forKey: Keys.isEndTimeUnset)
         defaults.set(calendar.startOfDay(for: currentTime), forKey: Keys.lastActiveDayStart)
@@ -547,6 +685,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         weeklyData = data
         autoFillTarget = target
         excludedAutoFillIndexes = excludedIndexes
+        refreshTodayTargetFromCurrentContext(syncInputFields: manualOverrideTargetMinutes == nil)
         persistWeeklyState()
     }
 
@@ -693,11 +832,212 @@ final class TimeCalculatorViewModel: ObservableObject {
         return isSameAutoFillTarget(inferredTarget, preferredTarget) ? preferredTarget : nil
     }
 
+    private enum TodayAutoSuggestionState {
+        case unavailable
+        case blocked(String)
+        case suggested(Int)
+    }
+
+    private func applyTodayManualTargetFromInputs() {
+        if isStartTimeUnset || isEndTimeUnset {
+            reactivateTodayInputs()
+        }
+
+        guard let manualMinutes = parsedTodayManualTargetMinutes else {
+            manualOverrideTargetMinutes = nil
+            refreshTodayTargetFromCurrentContext(syncInputFields: false)
+            persistTodayState()
+            return
+        }
+
+        manualOverrideTargetMinutes = manualMinutes
+        refreshTodayTargetFromCurrentContext(syncInputFields: false)
+        persistTodayState()
+    }
+
+    private var parsedTodayManualTargetMinutes: Int? {
+        let hoursText = targetInputHours.trimmingCharacters(in: .whitespacesAndNewlines)
+        let minutesText = targetInputMinutes.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !hoursText.isEmpty || !minutesText.isEmpty else {
+            return nil
+        }
+
+        let hours = Int(hoursText) ?? 0
+        let minutes = min(59, Int(minutesText) ?? 0)
+        return max(0, hours * 60 + minutes)
+    }
+
+    private func refreshTodayTargetFromCurrentContext(syncInputFields: Bool) {
+        let autoSuggestionState = resolveTodayAutoSuggestionState()
+
+        switch autoSuggestionState {
+        case .suggested(let minutes):
+            autoSuggestedTargetMinutes = minutes
+        case .blocked, .unavailable:
+            autoSuggestedTargetMinutes = nil
+        }
+
+        if let manualOverrideTargetMinutes {
+            todayTargetMode = .manualOverride
+            targetWorkMinutes = manualOverrideTargetMinutes
+        } else if let autoSuggestedTargetMinutes {
+            todayTargetMode = .autoSuggested
+            targetWorkMinutes = autoSuggestedTargetMinutes
+        } else {
+            todayTargetMode = .preset
+            targetWorkMinutes = baseTargetWorkMinutes
+        }
+
+        todayTargetGuideText = resolveTodayTargetGuideText(autoSuggestionState: autoSuggestionState)
+        alignTimesUsingLastEditedField()
+
+        if syncInputFields {
+            syncTodayTargetInputs(with: targetWorkMinutes)
+        }
+    }
+
+    private func resolveTodayTargetGuideText(autoSuggestionState: TodayAutoSuggestionState) -> String? {
+        switch todayTargetMode {
+        case .manualOverride:
+            if autoSuggestedTargetMinutes != nil {
+                return "[자동계산] 버튼을 눌러 남은 근무시간을 자동으로 입력할 수 있습니다."
+            }
+            return nil
+        case .autoSuggested:
+            return "이번 주 남은 근무시간은 \(formatMinutesToKorean(targetWorkMinutes)) 입니다 😎"
+        case .preset:
+            return nil
+        }
+    }
+
+    private func resolveTodayAutoSuggestionState() -> TodayAutoSuggestionState {
+        guard let todayIndex = currentWeekdayIndex else {
+            return .unavailable
+        }
+
+        guard lastActualWorkingDayIndex == todayIndex else {
+            return .unavailable
+        }
+
+        guard let validationMessage = weeklyAutoSuggestionBlockingMessage(excluding: todayIndex) else {
+            return suggestedTargetMinutes(for: todayIndex).map(TodayAutoSuggestionState.suggested) ?? .unavailable
+        }
+
+        return .blocked(validationMessage)
+    }
+
+    private var currentWeekdayIndex: Int? {
+        let weekday = calendar.component(.weekday, from: currentTime)
+        switch weekday {
+        case 2...6:
+            return weekday - 2
+        default:
+            return nil
+        }
+    }
+
+    private var lastActualWorkingDayIndex: Int? {
+        weeklyData.lastIndex { $0.leaveType != .annual }
+    }
+
+    private func weeklyAutoSuggestionBlockingMessage(excluding todayIndex: Int) -> String? {
+        for idx in weeklyData.indices where idx != todayIndex {
+            if isWeeklyDayIncompleteForAutoSuggestion(weeklyData[idx]) {
+                return "자동 목표시간을 계산하려면 오늘을 제외한 이번 주 근무시간을 입력해주세요."
+            }
+        }
+        return nil
+    }
+
+    private func isWeeklyDayIncompleteForAutoSuggestion(_ day: DayWorkData) -> Bool {
+        switch day.leaveType {
+        case .annual:
+            return false
+        case .half:
+            return isIncompleteHalfDay(day)
+        case .halfHalf, .none:
+            return isIncompleteRequiredWorkDay(day)
+        }
+    }
+
+    private func isIncompleteHalfDay(_ day: DayWorkData) -> Bool {
+        if day.mode == .manual {
+            return false
+        }
+
+        let hasStart = !day.start.isEmpty
+        let hasEnd = !day.end.isEmpty
+        return hasStart != hasEnd
+    }
+
+    private func isIncompleteRequiredWorkDay(_ day: DayWorkData) -> Bool {
+        if day.mode == .manual {
+            return day.manualHours.isEmpty && day.manualMinutes.isEmpty
+        }
+
+        let hasStart = !day.start.isEmpty
+        let hasEnd = !day.end.isEmpty
+        return !(hasStart && hasEnd)
+    }
+
+    private func suggestedTargetMinutes(for todayIndex: Int) -> Int? {
+        let todayData = weeklyData[todayIndex]
+        let otherTotal = weeklyData.enumerated().reduce(0) { partial, item in
+            item.offset == todayIndex ? partial : partial + getDailyMinutes(item.element)
+        }
+
+        let remainingRecognizedMinutes = weeklyGoalMinutes - otherTotal
+        let suggestedMinutes = clampWorkMinutesForDay(
+            todayData,
+            workMinutes: remainingRecognizedMinutes - getLeaveCreditMinutes(todayData)
+        )
+
+        let hasExceededDailyCapacity = remainingRecognizedMinutes > getLeaveCreditMinutes(todayData) + getMaxWorkMinutesForDay(todayData)
+        if hasExceededDailyCapacity || suggestedMinutes <= 0 {
+            return nil
+        }
+
+        return suggestedMinutes
+    }
+
+    private func syncTodayTargetInputs(with minutes: Int) {
+        targetInputHours = String(minutes / 60)
+        targetInputMinutes = String(format: "%02d", minutes % 60)
+    }
+
     private func sanitizeTimeString(_ value: String) -> String {
         String(value.prefix(5))
     }
 
     private func sanitizeNumberString(_ value: String) -> String {
         String(value.filter(\.isNumber))
+    }
+
+    private func sanitizeTodayHourString(_ value: String) -> String {
+        String(value.filter(\.isNumber).prefix(2))
+    }
+
+    private func sanitizeTodayMinuteString(_ value: String) -> String {
+        let filtered = String(value.filter(\.isNumber).prefix(2))
+        guard let minutes = Int(filtered) else {
+            return filtered
+        }
+        return String(format: "%02d", min(59, minutes))
+    }
+
+    private func selection(for minutes: Int) -> TodayTargetSelection {
+        switch minutes {
+        case 6 * 60:
+            return .sixHours
+        case 7 * 60:
+            return .sevenHours
+        case 8 * 60:
+            return .eightHours
+        case 9 * 60:
+            return .nineHours
+        default:
+            return .manual
+        }
     }
 }

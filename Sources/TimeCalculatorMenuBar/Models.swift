@@ -129,6 +129,52 @@ enum InputMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum TodayTargetMode: String, Codable {
+    case preset
+    case autoSuggested
+    case manualOverride
+}
+
+enum TodayTargetSelection: String, CaseIterable, Identifiable {
+    case sixHours
+    case sevenHours
+    case eightHours
+    case nineHours
+    case manual
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .sixHours:
+            return "6h"
+        case .sevenHours:
+            return "7h"
+        case .eightHours:
+            return "8h"
+        case .nineHours:
+            return "9h"
+        case .manual:
+            return "직접입력"
+        }
+    }
+
+    var presetMinutes: Int? {
+        switch self {
+        case .sixHours:
+            return 6 * 60
+        case .sevenHours:
+            return 7 * 60
+        case .eightHours:
+            return 8 * 60
+        case .nineHours:
+            return 9 * 60
+        case .manual:
+            return nil
+        }
+    }
+}
+
 struct DayWorkData: Codable, Identifiable {
     var day: String
     var mode: InputMode
