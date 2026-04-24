@@ -399,6 +399,12 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func updateWeeklyManualHours(idx: Int, value: String) {
         let sanitizedValue = sanitizeNumberString(value)
+        let currentValue = weeklyData[idx].manualHours
+
+        // 수정: 포커스 이동 등으로 동일 값이 다시 들어오는 경우 자동 계산 로직을 타지 않도록 막습니다.
+        guard sanitizedValue != currentValue else {
+            return
+        }
 
         if shouldDeferLastWorkingDayAutoFillWhileEditing(idx: idx) {
             applyDeferredWeeklyManualEdit(idx: idx) { day in
@@ -421,38 +427,25 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func updateWeeklyManualMinutes(idx: Int, value: String) {
+        let sanitizedValue = sanitizeNumberString(value)
+        let currentValue = weeklyData[idx].manualMinutes
+
+        // 수정: 포커스 이동 등으로 동일 값이 다시 들어오는 경우 자동 계산 로직을 타지 않도록 막습니다.
+        guard sanitizedValue != currentValue else {
+            return
+        }
+
         if shouldDeferLastWorkingDayAutoFillWhileEditing(idx: idx) {
             applyDeferredWeeklyManualEdit(idx: idx) { day in
-                day.manualMinutes = sanitizeNumberString(value)
+                day.manualMinutes = sanitizedValue
             }
             scheduleDeferredWeeklyAutoFillIfNeeded(idx: idx)
             return
         }
 
         handleWeeklyManualUpdate(idx: idx) { day in
-            day.manualMinutes = sanitizeNumberString(value)
+            day.manualMinutes = sanitizedValue
         }
-    }
-
-    func handleWeeklyManualFocusChange(
-        previousIndex: Int?,
-        previousComponent: WeeklyManualFieldComponent?,
-        currentIndex: Int?,
-        currentComponent: WeeklyManualFieldComponent?
-    ) {
-        if let previousIndex, let previousComponent {
-            if previousComponent == .hours,
-               currentIndex == previousIndex,
-               currentComponent == .minutes {
-                beginDeferredWeeklyManualEditingIfNeeded(idx: currentIndex)
-                return
-            }
-
-            finalizeWeeklyManualEntryIfNeeded(idx: previousIndex)
-        }
-
-        cancelDeferredWeeklyAutoFill()
-        beginDeferredWeeklyManualEditingIfNeeded(idx: currentIndex)
     }
 
     func resetWeeklyDay(idx: Int) {
@@ -920,23 +913,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
     }
 
-    private func beginDeferredWeeklyManualEditingIfNeeded(idx: Int?) {
-        guard let idx, shouldDeferLastWorkingDayAutoFillWhileEditing(idx: idx) else {
-            return
-        }
-
-        guard let deferredTarget = lastWorkingDayAutoFillTarget(in: weeklyData), deferredTarget.idx != idx else {
-            return
-        }
-
-        let clearedData = clearAutoFilledDayValue(data: weeklyData, target: deferredTarget)
-        commitWeeklyState(
-            data: clearedData,
-            target: deferredTarget,
-            excludedIndexes: excludedAutoFillIndexes
-        )
-    }
-
     private func shouldDeferLastWorkingDayAutoFillWhileEditing(idx: Int) -> Bool {
         idx == lastWorkingDayBeforeAutoFillIndex
     }
@@ -974,6 +950,11 @@ final class TimeCalculatorViewModel: ObservableObject {
             return nil
         }
 
+        if let previousIdx = previousActualWorkingDayIndex(before: target.idx, in: data),
+           !isDayReadyForTrailingAutoFill(data[previousIdx], isDirectPreviousDay: true) {
+            return nil
+        }
+
         if autoFillTarget?.idx == target.idx {
             return autoFillTarget
         }
@@ -987,6 +968,26 @@ final class TimeCalculatorViewModel: ObservableObject {
             return day.end.isEmpty ? target : nil
         case .end:
             return day.start.isEmpty ? target : nil
+        }
+    }
+
+    private func isDayReadyForTrailingAutoFill(_ day: DayWorkData, isDirectPreviousDay: Bool) -> Bool {
+        switch day.leaveType {
+        case .annual:
+            return true
+        case .half:
+            if day.mode == .manual {
+                return !day.manualHours.isEmpty || !day.manualMinutes.isEmpty || !isDirectPreviousDay
+            }
+            return day.start.isEmpty == day.end.isEmpty
+        case .halfHalf, .none:
+            if day.mode == .manual {
+                if isDirectPreviousDay {
+                    return !day.manualHours.isEmpty && !day.manualMinutes.isEmpty
+                }
+                return !day.manualHours.isEmpty || !day.manualMinutes.isEmpty
+            }
+            return !day.start.isEmpty && !day.end.isEmpty
         }
     }
 

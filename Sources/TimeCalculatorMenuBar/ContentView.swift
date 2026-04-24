@@ -4,8 +4,6 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
     private let koreanLocale = Locale(identifier: "ko_KR")
-    @FocusState private var weeklyManualFocus: WeeklyManualFocus?
-    @State private var previousWeeklyManualFocus: WeeklyManualFocus?
 
 private var appVersionText: String {
     let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
@@ -37,15 +35,6 @@ private var appVersionText: String {
         }
         .padding(16)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: weeklyManualFocus) { newValue in
-            viewModel.handleWeeklyManualFocusChange(
-                previousIndex: previousWeeklyManualFocus?.index,
-                previousComponent: previousWeeklyManualFocus?.component,
-                currentIndex: newValue?.index,
-                currentComponent: newValue?.component
-            )
-            previousWeeklyManualFocus = newValue
-        }
     }
 
     // 상단 헤더 이모지
@@ -197,8 +186,8 @@ private var appVersionText: String {
             if viewModel.shouldShowManualTargetInputs {
                 HStack(alignment: .center, spacing: 12) {
                 HStack(spacing: 12) {
-                    manualField(title: "시간", text: viewModel.targetManualHoursBinding, disabled: false, focus: nil)
-                    manualField(title: "분", text: viewModel.targetManualMinutesBinding, disabled: false, focus: nil)
+                    manualField(title: "시간", text: viewModel.targetManualHoursBinding, disabled: false)
+                    manualField(title: "분", text: viewModel.targetManualMinutesBinding, disabled: false)
                 }
 
                     Spacer(minLength: 0)
@@ -370,14 +359,12 @@ private var appVersionText: String {
                     manualField(
                         title: "시간",
                         text: weeklyManualHoursBinding(index: index),
-                        disabled: false,
-                        focus: WeeklyManualFocus(index: index, component: .hours)
+                        disabled: false
                     )
                     manualField(
                         title: "분",
                         text: weeklyManualMinutesBinding(index: index),
-                        disabled: false,
-                        focus: WeeklyManualFocus(index: index, component: .minutes)
+                        disabled: false
                     )
                 }
             }
@@ -438,42 +425,23 @@ private var appVersionText: String {
     private func manualField(
         title: String,
         text: Binding<String>,
-        disabled: Bool,
-        focus: WeeklyManualFocus?
+        disabled: Bool
     ) -> some View {
         HStack(spacing: 8) {
-            if let focus {
-                TextField("0", text: text)
-                    .textFieldStyle(.plain)
-                    .frame(width: 28, alignment: .leading)
-                    .disabled(disabled)
-                    .focused($weeklyManualFocus, equals: focus)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(nsColor: .windowBackgroundColor).opacity(1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color(nsColor: .separatorColor).opacity(1), lineWidth: 0.8)
-                    )
-            } else {
-                TextField("0", text: text)
-                    .textFieldStyle(.plain)
-                    .frame(width: 28, alignment: .leading)
-                    .disabled(disabled)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(nsColor: .windowBackgroundColor).opacity(1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color(nsColor: .separatorColor).opacity(1), lineWidth: 0.8)
-                    )
-            }
+            TextField("0", text: text)
+                .textFieldStyle(.plain)
+                .frame(width: 28, alignment: .leading)
+                .disabled(disabled)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor).opacity(1))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(1), lineWidth: 0.8)
+                )
             Text(title)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
@@ -735,11 +703,6 @@ private struct BorderlessTimePicker: NSViewRepresentable {
             selection = sender.dateValue
         }
     }
-}
-
-private struct WeeklyManualFocus: Hashable {
-    let index: Int
-    let component: WeeklyManualFieldComponent
 }
 
 private extension View {
