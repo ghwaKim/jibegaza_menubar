@@ -175,6 +175,11 @@ enum TodayTargetSelection: String, CaseIterable, Identifiable {
     }
 }
 
+enum WeeklyManualFieldComponent: Hashable {
+    case hours
+    case minutes
+}
+
 struct DayWorkData: Codable, Identifiable {
     var day: String
     var mode: InputMode
