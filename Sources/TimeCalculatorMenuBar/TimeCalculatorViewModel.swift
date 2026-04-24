@@ -401,7 +401,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         let sanitizedValue = sanitizeNumberString(value)
         let currentValue = weeklyData[idx].manualHours
 
-        // 수정: 포커스 이동 등으로 동일 값이 다시 들어오는 경우 자동 계산 로직을 타지 않도록 막습니다.
         guard sanitizedValue != currentValue else {
             return
         }
@@ -430,7 +429,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         let sanitizedValue = sanitizeNumberString(value)
         let currentValue = weeklyData[idx].manualMinutes
 
-        // 수정: 포커스 이동 등으로 동일 값이 다시 들어오는 경우 자동 계산 로직을 타지 않도록 막습니다.
         guard sanitizedValue != currentValue else {
             return
         }
@@ -754,8 +752,8 @@ final class TimeCalculatorViewModel: ObservableObject {
         lhs == rhs
     }
 
-    private func inferAutoFillTarget(data: [DayWorkData], excludedIndexes: [Int] = []) -> AutoFillTarget? {
-        let candidates = data.enumerated().flatMap { idx, day -> [AutoFillTarget] in
+    private func autoFillCandidates(data: [DayWorkData], excludedIndexes: [Int] = []) -> [AutoFillTarget] {
+        data.enumerated().flatMap { idx, day -> [AutoFillTarget] in
             if excludedIndexes.contains(idx) || day.leaveType == .annual {
                 return []
             }
@@ -778,7 +776,10 @@ final class TimeCalculatorViewModel: ObservableObject {
 
             return []
         }
+    }
 
+    private func inferAutoFillTarget(data: [DayWorkData], excludedIndexes: [Int] = []) -> AutoFillTarget? {
+        let candidates = autoFillCandidates(data: data, excludedIndexes: excludedIndexes)
         return candidates.count == 1 ? candidates[0] : nil
     }
 
@@ -918,77 +919,19 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private var lastWorkingDayBeforeAutoFillIndex: Int? {
-        guard let target = lastWorkingDayAutoFillTarget(in: weeklyData) else {
+        guard let target = lastAutoFillCandidate(in: weeklyData) else {
             return nil
         }
 
         return previousActualWorkingDayIndex(before: target.idx, in: weeklyData)
     }
 
-    private func lastWorkingDayAutoFillTarget(in data: [DayWorkData]) -> AutoFillTarget? {
-        guard let lastIdx = data.lastIndex(where: { $0.leaveType != .annual }) else {
-            return nil
-        }
-
-        let day = data[lastIdx]
-        switch day.mode {
-        case .manual:
-            return AutoFillTarget(idx: lastIdx, type: .manual)
-        case .range:
-            if !day.start.isEmpty && day.end.isEmpty {
-                return AutoFillTarget(idx: lastIdx, type: .end)
-            }
-            if !day.end.isEmpty && day.start.isEmpty {
-                return AutoFillTarget(idx: lastIdx, type: .start)
-            }
-            return nil
-        }
+    private func lastAutoFillCandidate(in data: [DayWorkData]) -> AutoFillTarget? {
+        autoFillCandidates(data: data).last
     }
 
     private func preferredLastWorkingDayTarget(in data: [DayWorkData]) -> AutoFillTarget? {
-        guard let target = lastWorkingDayAutoFillTarget(in: data) else {
-            return nil
-        }
-
-        if let previousIdx = previousActualWorkingDayIndex(before: target.idx, in: data),
-           !isDayReadyForTrailingAutoFill(data[previousIdx], isDirectPreviousDay: true) {
-            return nil
-        }
-
-        if autoFillTarget?.idx == target.idx {
-            return autoFillTarget
-        }
-
-        let day = data[target.idx]
-        switch target.type {
-        case .manual:
-            let hasManualInput = !day.manualHours.isEmpty || !day.manualMinutes.isEmpty
-            return hasManualInput ? nil : target
-        case .start:
-            return day.end.isEmpty ? target : nil
-        case .end:
-            return day.start.isEmpty ? target : nil
-        }
-    }
-
-    private func isDayReadyForTrailingAutoFill(_ day: DayWorkData, isDirectPreviousDay: Bool) -> Bool {
-        switch day.leaveType {
-        case .annual:
-            return true
-        case .half:
-            if day.mode == .manual {
-                return !day.manualHours.isEmpty || !day.manualMinutes.isEmpty || !isDirectPreviousDay
-            }
-            return day.start.isEmpty == day.end.isEmpty
-        case .halfHalf, .none:
-            if day.mode == .manual {
-                if isDirectPreviousDay {
-                    return !day.manualHours.isEmpty && !day.manualMinutes.isEmpty
-                }
-                return !day.manualHours.isEmpty || !day.manualMinutes.isEmpty
-            }
-            return !day.start.isEmpty && !day.end.isEmpty
-        }
+        inferAutoFillTarget(data: data)
     }
 
     private func previousActualWorkingDayIndex(before idx: Int, in data: [DayWorkData]) -> Int? {
@@ -1003,13 +946,13 @@ final class TimeCalculatorViewModel: ObservableObject {
         var newData = weeklyData
         mutation(&newData[idx])
 
-        if let deferredTarget = lastWorkingDayAutoFillTarget(in: newData), deferredTarget.idx != idx {
+        if let deferredTarget = lastAutoFillCandidate(in: newData), deferredTarget.idx != idx {
             newData = clearAutoFilledDayValue(data: newData, target: deferredTarget)
         }
 
         commitWeeklyState(
             data: newData,
-            target: lastWorkingDayAutoFillTarget(in: newData),
+            target: preferredLastWorkingDayTarget(in: newData),
             excludedIndexes: excludedAutoFillIndexes
         )
     }
