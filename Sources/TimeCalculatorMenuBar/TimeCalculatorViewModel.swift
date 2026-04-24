@@ -374,6 +374,16 @@ final class TimeCalculatorViewModel: ObservableObject {
         newData[idx].start = sanitizeTimeString(value)
         let nextExcluded = excludedAutoFillIndexes.filter { $0 != idx }
         let preferredTarget = getRangeAutoFillTarget(data: newData, idx: idx, editedField: .start, excludedIndexes: nextExcluded)
+
+        guard shouldApplyRangeAutoFill(data: newData, preferredTarget: preferredTarget) else {
+            commitWeeklyState(
+                data: clearedDataForRangeEdit(data: newData, editedIndex: idx),
+                target: preferredLastWorkingDayTarget(in: newData),
+                excludedIndexes: nextExcluded
+            )
+            return
+        }
+
         let result = applyAutoFill(
             data: newData,
             preferredTarget: preferredTarget,
@@ -388,6 +398,16 @@ final class TimeCalculatorViewModel: ObservableObject {
         newData[idx].end = sanitizeTimeString(value)
         let nextExcluded = excludedAutoFillIndexes.filter { $0 != idx }
         let preferredTarget = getRangeAutoFillTarget(data: newData, idx: idx, editedField: .end, excludedIndexes: nextExcluded)
+
+        guard shouldApplyRangeAutoFill(data: newData, preferredTarget: preferredTarget) else {
+            commitWeeklyState(
+                data: clearedDataForRangeEdit(data: newData, editedIndex: idx),
+                target: preferredLastWorkingDayTarget(in: newData),
+                excludedIndexes: nextExcluded
+            )
+            return
+        }
+
         let result = applyAutoFill(
             data: newData,
             preferredTarget: preferredTarget,
@@ -872,6 +892,21 @@ final class TimeCalculatorViewModel: ObservableObject {
         let preferredTarget = AutoFillTarget(idx: idx, type: targetType)
         let inferredTarget = inferAutoFillTarget(data: probeData, excludedIndexes: excludedIndexes)
         return isSameAutoFillTarget(inferredTarget, preferredTarget) ? preferredTarget : nil
+    }
+
+    private func shouldApplyRangeAutoFill(data: [DayWorkData], preferredTarget: AutoFillTarget?) -> Bool {
+        guard let preferredTarget else {
+            return false
+        }
+        return isSameAutoFillTarget(lastAutoFillCandidate(in: data), preferredTarget)
+    }
+
+    private func clearedDataForRangeEdit(data: [DayWorkData], editedIndex: Int) -> [DayWorkData] {
+        guard let currentAutoFillTarget = autoFillTarget, currentAutoFillTarget.idx != editedIndex else {
+            return data
+        }
+
+        return clearAutoFilledDayValue(data: data, target: currentAutoFillTarget)
     }
 
     private func finalizeWeeklyManualEntryIfNeeded(idx: Int) {
