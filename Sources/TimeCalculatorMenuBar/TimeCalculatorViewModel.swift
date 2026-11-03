@@ -19,7 +19,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     @Published private(set) var todayTargetGuideText: String?
     @Published private var currentTime: Date
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let calendar = Calendar.current
     private let fixedBreakMinutes = 60
     private var timerCancellable: AnyCancellable?
@@ -57,8 +57,8 @@ final class TimeCalculatorViewModel: ObservableObject {
         didSet { defaults.set(lastEditedField.rawValue, forKey: Keys.lastEditedField) }
     }
 
-    init() {
-        let now = Date()
+    init(defaults: UserDefaults = .standard, now: Date = Date()) {
+        self.defaults = defaults
         currentTime = now
         trackedDayStart = calendar.startOfDay(for: now)
 
@@ -109,15 +109,22 @@ final class TimeCalculatorViewModel: ObservableObject {
         switch mode.metric {
         case .worked:
             return compactDuration(workedMinutesToday)
-        case .remaining:
-            return compactDuration(remainingWorkMinutesToday)
+        case .untilDeparture:
+            return signedCompactDuration(remainingDepartureMinutes)
         case .hidden:
             return ""
         }
     }
 
     var menuBarEmoji: String {
-        menuBarDisplayMode?.menuBarEmoji ?? "❓"
+        {
+            guard let metric = menuBarDisplayMode?.metric else { return "❓" }
+            let remaining = remainingDepartureMinutes
+            if metric == .untilDeparture {
+                return remaining < 0 ? "✅" : (remaining == 0 ? "✅" : (menuBarDisplayMode?.menuBarEmoji ?? "⏳"))
+            }
+            return menuBarDisplayMode?.menuBarEmoji ?? "❓"
+        }()
     }
 
     var formattedTargetWork: String {
@@ -141,7 +148,31 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     var formattedRemainingToday: String {
-        formatMinutesToKorean(remainingWorkMinutesToday)
+        remainingWorkMinutesToday < 0
+            ? formatMinutesToKorean(-remainingWorkMinutesToday)
+            : (remainingWorkMinutesToday == 0 ? "목표 근무 완료" : formatMinutesToKorean(remainingWorkMinutesToday))
+    }
+
+    var remainingWorkLabel: String {
+        remainingWorkMinutesToday < 0 ? "초과 근무시간" : "오늘 남은 근무시간"
+    }
+
+    var formattedRemainingDeparture: String {
+        guard !isStartTimeUnset && !isEndTimeUnset else { return "-- --" }
+        if remainingDepartureMinutes < 0 {
+            return "퇴근 가능 시각 " + formatMinutesToKorean(-remainingDepartureMinutes) + " 경과"
+        }
+        return remainingDepartureMinutes == 0 ? "집에가자 😎" : formatMinutesToKorean(remainingDepartureMinutes)
+    }
+
+    private var remainingDepartureMinutes: Int {
+        guard !isStartTimeUnset && !isEndTimeUnset else { return 0 }
+        return Int(ceil(endTime.timeIntervalSince(currentTime) / 60))
+    }
+
+    private var appliesCoreTime: Bool {
+        guard let index = currentWeekdayIndex else { return false }
+        return weeklyData[index].leaveType == .none
     }
 
     var weekTotalText: String {
@@ -154,7 +185,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     var menuBarMetricBinding: Binding<MenuBarMetric> {
         Binding(
-            get: { self.menuBarDisplayMode?.metric ?? .remaining },
+            get: { self.menuBarDisplayMode?.metric ?? .untilDeparture },
             set: { self.updateMenuBarMetric($0) }
         )
     }
@@ -233,8 +264,12 @@ final class TimeCalculatorViewModel: ObservableObject {
         lastEditedField = .startTime
         isStartTimeUnset = false
         isEndTimeUnset = false
-        startTime = newValue
-        endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: newValue)
+        startTime = constrainedStart(newValue)
+        if isManualTargetSelectionActive {
+            syncManualTargetFromTimes()
+        } else {
+            alignTimesUsingLastEditedField()
+        }
         persistTodayState()
     }
 
@@ -242,8 +277,12 @@ final class TimeCalculatorViewModel: ObservableObject {
         lastEditedField = .endTime
         isStartTimeUnset = false
         isEndTimeUnset = false
-        endTime = newValue
-        startTime = addingMinutes(-(targetWorkMinutes + fixedBreakMinutes), to: newValue)
+        endTime = constrainedEnd(newValue)
+        if isManualTargetSelectionActive {
+            syncManualTargetFromTimes()
+        } else {
+            alignTimesUsingLastEditedField()
+        }
         persistTodayState()
     }
 
@@ -308,14 +347,14 @@ final class TimeCalculatorViewModel: ObservableObject {
     func activateStartTimeSelection() {
         reactivateTodayInputs()
         lastEditedField = .startTime
-        endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: startTime)
+        alignTimesUsingLastEditedField()
         persistTodayState()
     }
 
     func activateEndTimeSelection() {
         reactivateTodayInputs()
         lastEditedField = .endTime
-        startTime = addingMinutes(-(targetWorkMinutes + fixedBreakMinutes), to: endTime)
+        alignTimesUsingLastEditedField()
         persistTodayState()
     }
 
@@ -371,7 +410,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func updateWeeklyStart(idx: Int, value: String) {
         var newData = weeklyData
-        newData[idx].start = sanitizeTimeString(value)
+        newData[idx].start = value.isEmpty ? "" : minutesToTime(max(earliestStartMinutes, timeToMinutes(sanitizeTimeString(value))))
         let nextExcluded = excludedAutoFillIndexes.filter { $0 != idx }
         let preferredTarget = getRangeAutoFillTarget(data: newData, idx: idx, editedField: .start, excludedIndexes: nextExcluded)
 
@@ -539,7 +578,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         isStartTimeUnset = false
         isEndTimeUnset = false
         alignTimesUsingLastEditedField()
-        setMenuBarDisplayMode(MenuBarDisplayMode(metric: .remaining))
+        setMenuBarDisplayMode(MenuBarDisplayMode(metric: .untilDeparture))
     }
 
     private func shouldResetForNewDay(referenceDate: Date) -> Bool {
@@ -571,12 +610,46 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
     }
 
+    private func constrainedStart(_ date: Date) -> Date {
+        let earliest = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: date) ?? date
+        return max(date, earliest)
+    }
+
+    private func constrainedEnd(_ date: Date) -> Date {
+        guard appliesCoreTime else { return date }
+        let earliest = calendar.date(bySettingHour: 15, minute: 30, second: 0, of: date) ?? date
+        return max(date, earliest)
+    }
+
+    private func syncManualTargetFromTimes() {
+        let minutes = max(0, Int(endTime.timeIntervalSince(startTime) / 60)
+            - overlapMinutes(firstStart: startTime, firstEnd: endTime,
+                             secondStart: fixedBreakStart, secondEnd: fixedBreakEnd))
+        manualOverrideTargetMinutes = minutes
+        targetWorkMinutes = minutes
+        todayTargetMode = .manualOverride
+        syncTodayTargetInputs(with: minutes)
+    }
+
     private func alignTimesUsingLastEditedField() {
+        startTime = constrainedStart(startTime)
         switch lastEditedField {
         case .startTime:
-            endTime = addingMinutes(targetWorkMinutes + fixedBreakMinutes, to: startTime)
+            let minutes = calendar.component(.hour, from: startTime) * 60 + calendar.component(.minute, from: startTime)
+            let result = calculateReverseTime(baseTimeMinutes: minutes, targetMinutes: targetWorkMinutes, type: .end)
+            endTime = constrainedEnd(addingMinutes(result - minutes, to: startTime))
         case .endTime:
-            startTime = addingMinutes(-(targetWorkMinutes + fixedBreakMinutes), to: endTime)
+            endTime = constrainedEnd(endTime)
+            let minutes = calendar.component(.hour, from: endTime) * 60 + calendar.component(.minute, from: endTime)
+            var result = calculateReverseTime(baseTimeMinutes: minutes, targetMinutes: targetWorkMinutes, type: .start)
+            if appliesCoreTime { result = min(result, 10 * 60 + 30) }
+            if result < earliestStartMinutes {
+                startTime = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: endTime) ?? endTime
+                let endMinutes = calculateReverseTime(baseTimeMinutes: earliestStartMinutes, targetMinutes: targetWorkMinutes, type: .end)
+                endTime = constrainedEnd(addingMinutes(endMinutes - earliestStartMinutes, to: startTime))
+            } else {
+                startTime = addingMinutes(result - minutes, to: endTime)
+            }
         }
     }
 
@@ -605,7 +678,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private var remainingWorkMinutesToday: Int {
-        max(0, targetWorkMinutes - min(workedMinutesToday, targetWorkMinutes))
+        targetWorkMinutes - workedMinutesToday
     }
 
     private var weeklyWorkedMinutes: Int {
@@ -629,6 +702,10 @@ final class TimeCalculatorViewModel: ObservableObject {
         let overlapEnd = min(firstEnd, secondEnd)
         guard overlapEnd > overlapStart else { return 0 }
         return Int(overlapEnd.timeIntervalSince(overlapStart) / 60)
+    }
+
+    private func signedCompactDuration(_ minutes: Int) -> String {
+        (minutes < 0 ? "+" : "") + compactDuration(abs(minutes))
     }
 
     private func compactDuration(_ totalMinutes: Int) -> String {
@@ -857,6 +934,9 @@ final class TimeCalculatorViewModel: ObservableObject {
             )
         }
 
+        if resolvedTarget.type == .start, !nextData[resolvedTarget.idx].start.isEmpty {
+            nextData[resolvedTarget.idx].start = minutesToTime(max(earliestStartMinutes, timeToMinutes(nextData[resolvedTarget.idx].start)))
+        }
         return (nextData, resolvedTarget)
     }
 
@@ -1066,7 +1146,9 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
 
         manualOverrideTargetMinutes = manualMinutes
+        lastEditedField = .startTime
         refreshTodayTargetFromCurrentContext(syncInputFields: false)
+        alignTimesUsingLastEditedField()
         persistTodayState()
     }
 
@@ -1105,7 +1187,12 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
 
         todayTargetGuideText = resolveTodayTargetGuideText(autoSuggestionState: autoSuggestionState)
-        alignTimesUsingLastEditedField()
+        if !isManualTargetSelectionActive {
+            alignTimesUsingLastEditedField()
+        } else {
+            startTime = constrainedStart(startTime)
+            endTime = constrainedEnd(endTime)
+        }
 
         if syncInputFields {
             syncTodayTargetInputs(with: targetWorkMinutes)

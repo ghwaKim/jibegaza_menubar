@@ -16,5 +16,6 @@ let package = Package(
         .executableTarget(
             name: "TimeCalculatorMenuBar"
         ),
+        .testTarget(name: "TimeCalculatorMenuBarTests", dependencies: ["TimeCalculatorMenuBar"]),
     ]
 )

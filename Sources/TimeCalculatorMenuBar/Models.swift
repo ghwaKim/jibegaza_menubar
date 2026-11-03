@@ -18,7 +18,7 @@ enum WorkTab: String, CaseIterable, Identifiable {
 
 enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     case worked
-    case remaining
+    case untilDeparture
     case hidden
 
     var id: String { rawValue }
@@ -27,8 +27,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .worked:
             return "지금까지 근무시간"
-        case .remaining:
-            return "남은 근무시간"
+        case .untilDeparture:
+            return "퇴근까지 남은 시간"
         case .hidden:
             return "시간 숨기기"
         }
@@ -51,7 +51,7 @@ struct MenuBarDisplayMode: Codable, Equatable {
         switch metric {
         case .worked:
             return "⏱️"
-        case .remaining:
+        case .untilDeparture:
             return "⏳"
         case .hidden:
             return "🌍"
@@ -62,8 +62,8 @@ struct MenuBarDisplayMode: Codable, Equatable {
         switch metric {
         case .worked:
             return "오늘 총 근무시간"
-        case .remaining:
-            return "오늘 남은 근무시간"
+        case .untilDeparture:
+            return "퇴근까지 남은 시간"
         case .hidden:
             return "시간 숨기기"
         }
@@ -73,7 +73,7 @@ struct MenuBarDisplayMode: Codable, Equatable {
         switch metric {
         case .worked:
             return "⏱️"
-        case .remaining:
+        case .untilDeparture:
             return "⏳"
         case .hidden:
             return "🌍"
@@ -82,7 +82,12 @@ struct MenuBarDisplayMode: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        metric = try container.decode(MenuBarMetric.self, forKey: .metric)
+        let savedMetric = try container.decode(String.self, forKey: .metric)
+        if savedMetric == "remaining" {
+            metric = .untilDeparture
+        } else {
+            metric = try container.decode(MenuBarMetric.self, forKey: .metric)
+        }
     }
 
     func encode(to encoder: Encoder) throws {

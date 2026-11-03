@@ -73,13 +73,12 @@ private var appVersionText: String {
 
             Picker("", selection: viewModel.menuBarMetricBinding) {
                 Text("⏱️ 오늘 총 근무시간").tag(MenuBarMetric.worked)
-                Text("⏳ 오늘 남은 근무시간").tag(MenuBarMetric.remaining)
+                Text("⏳ 퇴근까지 남은 시간").tag(MenuBarMetric.untilDeparture)
                 Text("🏃‍♂️ 시간 숨기기").tag(MenuBarMetric.hidden)
             }
             .labelsHidden()
             .pickerStyle(.radioGroup)
         }
-        .frame(height: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
     }
@@ -94,7 +93,6 @@ private var appVersionText: String {
                 weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText)
             }
         }
-        .frame(height: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
     }
@@ -130,9 +128,10 @@ private var appVersionText: String {
                 VStack(alignment: .leading, spacing: 10) {
                     summaryLine(title: "목표 근무 시간", value: viewModel.formattedTargetWork)
                     summaryLine(title: "출근 시간", value: viewModel.formattedStartTime)
-                    summaryLine(title: "퇴근 시간", value: viewModel.formattedEndTime)
+                    summaryLine(title: "퇴근 가능 시각", value: viewModel.formattedEndTime)
                     summaryLine(title: "오늘 총 근무시간", value: viewModel.formattedWorkedToday)
-                    summaryLine(title: "오늘 남은 근무시간", value: viewModel.formattedRemainingToday)
+                    summaryLine(title: viewModel.remainingWorkLabel, value: viewModel.formattedRemainingToday, description: "(목표 근무시간까지 남은 시간 · 휴게시간 제외)")
+                    summaryLine(title: "퇴근까지 남은 시간", value: viewModel.formattedRemainingDeparture, description: "(퇴근 가능 시각까지 남은 시간 · 휴게시간 및 코어타임 반영)")
                 }
             }
             .panelStyle()
@@ -530,18 +529,26 @@ private var appVersionText: String {
     }
 
     // 오늘 탭 요약 행
-    private func summaryLine(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 12)
-            Text(value)
-                .font(.subheadline.monospacedDigit()) 
-                .fontWeight(.semibold) 
-                .foregroundStyle(.primary)
+    private func summaryLine(title: String, value: String, description: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Text(value)
+                    .font(.subheadline.monospacedDigit())
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+            }
+            .font(.system(size: 13))
+            if let description {
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .font(.system(size: 13))
     }
 
     // 오늘 탭 비어 있는 시간 placeholder 표시 제어

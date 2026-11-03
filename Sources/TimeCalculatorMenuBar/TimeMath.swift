@@ -3,6 +3,7 @@ import Foundation
 let weekDays = ["월", "화", "수", "목", "금"]
 let weeklyGoalMinutes = 40 * 60
 let maxDailyMinutes = 9 * 60
+let earliestStartMinutes = 8 * 60
 let lunchStartMinutes = 12 * 60 + 30
 let lunchEndMinutes = 13 * 60 + 30
 
