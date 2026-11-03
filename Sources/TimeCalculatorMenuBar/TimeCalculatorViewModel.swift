@@ -29,7 +29,6 @@ final class TimeCalculatorViewModel: ObservableObject {
     private var manualOverrideTargetMinutes: Int?
     private var autoSuggestedTargetMinutes: Int?
     private var isManualTargetSelectionActive: Bool
-    private var pendingDeferredAutoFillWorkItem: DispatchWorkItem?
 
     private enum Keys {
         static let startTime = "startTime"
@@ -175,8 +174,49 @@ final class TimeCalculatorViewModel: ObservableObject {
         return weeklyData[index].leaveType == .none
     }
 
+    private func isCompleteWeeklyDay(_ day: DayWorkData) -> Bool {
+        if day.leaveType == .annual { return true }
+        if day.mode == .manual { return !day.manualHours.isEmpty || !day.manualMinutes.isEmpty }
+        return !day.start.isEmpty && !day.end.isEmpty && timeToMinutes(day.end) >= timeToMinutes(day.start)
+    }
+
+    func isWeeklyAutoCalculated(at index: Int) -> Bool {
+        autoFillTarget?.idx == index
+    }
+
+    var weeklyCalculationNotice: String? {
+        guard let target = autoFillTarget else { return nil }
+        let othersComplete = weeklyData.enumerated().allSatisfy { index, day in
+            index == target.idx || isCompleteWeeklyDay(day)
+        }
+        guard othersComplete else { return "자동 계산하려면 다른 요일의 근무시간을 모두 입력해주세요." }
+        let day = weeklyData[target.idx]
+        var reasons: [String] = []
+        let otherTotal = weeklyData.enumerated().reduce(0) { $0 + ($1.offset == target.idx ? 0 : getDailyMinutes($1.element)) }
+        if weeklyGoalMinutes - otherTotal > maxDailyMinutes { reasons.append("일 최대 인정시간 9시간") }
+        if day.mode == .range {
+            if target.type == .start && timeToMinutes(day.start) == earliestStartMinutes { reasons.append("출근 하한 08:00") }
+            if day.leaveType == .none { reasons.append("정상근무 코어타임 10:30~15:30") }
+            if timeToMinutes(day.end) == 1439 { reasons.append("당일 종료 한도 23:59") }
+        }
+        let total = weeklyWorkedMinutes
+        let violatesCoreEnd = day.mode == .range && day.leaveType == .none && timeToMinutes(day.end) < 15 * 60 + 30
+        if violatesCoreEnd {
+            let balance = total == weeklyGoalMinutes ? "합계는 40시간이지만" : "주 40시간 대비 " + formatMinutesToKorean(abs(weeklyGoalMinutes - total)) + (total < weeklyGoalMinutes ? " 부족합니다." : " 초과합니다.")
+            return balance + " 정상근무 퇴근은 15:30 이후여야 합니다. 입력한 퇴근 시각을 조정해주세요."
+        }
+        guard total != weeklyGoalMinutes else { return nil }
+        let difference = formatMinutesToKorean(abs(weeklyGoalMinutes - total))
+        let reason = reasons.isEmpty ? "입력한 시각과 휴가 인정시간" : reasons.joined(separator: " · ")
+        return "주 40시간 대비 \(difference) \(total < weeklyGoalMinutes ? "부족" : "초과") · \(reason) 반영. 입력값을 조정해주세요."
+    }
+
     var weekTotalText: String {
         formatMinutesToKorean(weeklyWorkedMinutes)
+    }
+
+    var hasRemainingWeeklyWork: Bool {
+        weeklyRemainingMinutes > 0
     }
 
     var weekRemainingText: String {
@@ -397,112 +437,50 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func updateWeeklyLeaveType(idx: Int, leaveType: LeaveType) {
-        handleWeeklyUpdate(idx: idx, updatesReason: .stateOnly) { day in
+        handleWeeklyUpdate(idx: idx) { day in
             day.leaveType = leaveType
         }
     }
 
     func toggleWeeklyMode(idx: Int) {
-        handleWeeklyUpdate(idx: idx, updatesReason: .stateOnly) { day in
+        handleWeeklyUpdate(idx: idx) { day in
             day.mode = day.mode == .range ? .manual : .range
         }
     }
 
     func updateWeeklyStart(idx: Int, value: String) {
-        var newData = weeklyData
-        newData[idx].start = value.isEmpty ? "" : minutesToTime(max(earliestStartMinutes, timeToMinutes(sanitizeTimeString(value))))
-        let nextExcluded = excludedAutoFillIndexes.filter { $0 != idx }
-        let preferredTarget = getRangeAutoFillTarget(data: newData, idx: idx, editedField: .start, excludedIndexes: nextExcluded)
-
-        guard shouldApplyRangeAutoFill(data: newData, preferredTarget: preferredTarget) else {
-            commitWeeklyState(
-                data: clearedDataForRangeEdit(data: newData, editedIndex: idx),
-                target: preferredLastWorkingDayTarget(in: newData),
-                excludedIndexes: nextExcluded
-            )
-            return
+        updateWeeklyInput(idx: idx, field: .start) { day in
+            day.start = value.isEmpty ? "" : minutesToTime(max(earliestStartMinutes, timeToMinutes(sanitizeTimeString(value))))
         }
-
-        let result = applyAutoFill(
-            data: newData,
-            preferredTarget: preferredTarget,
-            excludedIndexes: nextExcluded,
-            allowPreferredOverride: preferredTarget != nil
-        )
-        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
     }
 
     func updateWeeklyEnd(idx: Int, value: String) {
-        var newData = weeklyData
-        newData[idx].end = sanitizeTimeString(value)
-        let nextExcluded = excludedAutoFillIndexes.filter { $0 != idx }
-        let preferredTarget = getRangeAutoFillTarget(data: newData, idx: idx, editedField: .end, excludedIndexes: nextExcluded)
-
-        guard shouldApplyRangeAutoFill(data: newData, preferredTarget: preferredTarget) else {
-            commitWeeklyState(
-                data: clearedDataForRangeEdit(data: newData, editedIndex: idx),
-                target: preferredLastWorkingDayTarget(in: newData),
-                excludedIndexes: nextExcluded
-            )
-            return
+        updateWeeklyInput(idx: idx, field: .end) { day in
+            day.end = sanitizeTimeString(value)
         }
-
-        let result = applyAutoFill(
-            data: newData,
-            preferredTarget: preferredTarget,
-            excludedIndexes: nextExcluded,
-            allowPreferredOverride: preferredTarget != nil
-        )
-        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
     }
 
     func updateWeeklyManualHours(idx: Int, value: String) {
-        let sanitizedValue = sanitizeNumberString(value)
-        let currentValue = weeklyData[idx].manualHours
-
-        guard sanitizedValue != currentValue else {
-            return
-        }
-
-        if shouldDeferLastWorkingDayAutoFillWhileEditing(idx: idx) {
-            applyDeferredWeeklyManualEdit(idx: idx) { day in
-                day.manualHours = sanitizedValue
-            }
-            scheduleDeferredWeeklyAutoFillIfNeeded(idx: idx)
-            return
-        }
-
-        if weeklyData[idx].manualMinutes.isEmpty, !sanitizedValue.isEmpty {
-            var newData = weeklyData
-            newData[idx].manualHours = sanitizedValue
-            commitWeeklyState(data: newData, target: autoFillTarget, excludedIndexes: excludedAutoFillIndexes)
-            return
-        }
-
-        handleWeeklyManualUpdate(idx: idx) { day in
-            day.manualHours = sanitizedValue
-        }
+        updateWeeklyInput(idx: idx, field: .manual) { $0.manualHours = sanitizeNumberString(value) }
     }
 
     func updateWeeklyManualMinutes(idx: Int, value: String) {
-        let sanitizedValue = sanitizeNumberString(value)
-        let currentValue = weeklyData[idx].manualMinutes
+        updateWeeklyInput(idx: idx, field: .manual) { $0.manualMinutes = sanitizeNumberString(value) }
+    }
 
-        guard sanitizedValue != currentValue else {
-            return
+    private func updateWeeklyInput(idx: Int, field: AutoFillType, mutation: (inout DayWorkData) -> Void) {
+        var data = weeklyData
+        mutation(&data[idx])
+        var excluded = excludedAutoFillIndexes.filter { $0 != idx }
+        var preferred = autoFillTarget
+        // Editing an automatically calculated field explicitly makes it manual.
+        if preferred == AutoFillTarget(idx: idx, type: field) {
+            preferred = nil
+            excluded.append(idx)
         }
-
-        if shouldDeferLastWorkingDayAutoFillWhileEditing(idx: idx) {
-            applyDeferredWeeklyManualEdit(idx: idx) { day in
-                day.manualMinutes = sanitizedValue
-            }
-            scheduleDeferredWeeklyAutoFillIfNeeded(idx: idx)
-            return
-        }
-
-        handleWeeklyManualUpdate(idx: idx) { day in
-            day.manualMinutes = sanitizedValue
-        }
+        let result = applyAutoFill(data: data, preferredTarget: preferred,
+                                   excludedIndexes: excluded, allowPreferredOverride: true)
+        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
     }
 
     func resetWeeklyDay(idx: Int) {
@@ -517,7 +495,9 @@ final class TimeCalculatorViewModel: ObservableObject {
         newData[idx].lockManual = false
 
         let nextExcluded = Array(Set(excludedAutoFillIndexes + [idx])).sorted()
-        let result = applyAutoFill(data: newData, preferredTarget: nil, excludedIndexes: nextExcluded)
+        let preferred = autoFillTarget?.idx == idx ? nil : autoFillTarget
+        let result = applyAutoFill(data: newData, preferredTarget: preferred,
+                                   excludedIndexes: nextExcluded, allowPreferredOverride: true)
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
     }
 
@@ -785,25 +765,23 @@ final class TimeCalculatorViewModel: ObservableObject {
         return try? JSONDecoder().decode(AutoFillTarget.self, from: data)
     }
 
-    private enum WeeklyUpdateReason {
-        case dataEdit
-        case stateOnly
-    }
-
     private func handleWeeklyUpdate(
         idx: Int,
-        updatesReason: WeeklyUpdateReason,
         mutation: (inout DayWorkData) -> Void
     ) {
         var newData = weeklyData
+        if let target = autoFillTarget, target.idx == idx {
+            switch target.type {
+            case .manual: newData[idx].manualHours = ""; newData[idx].manualMinutes = ""
+            case .start: newData[idx].start = ""
+            case .end: newData[idx].end = ""
+            }
+        }
         mutation(&newData[idx])
 
-        let nextExcluded = updatesReason == .dataEdit
-            ? excludedAutoFillIndexes.filter { $0 != idx }
-            : excludedAutoFillIndexes
-
-        let preferredTarget = autoFillTarget?.idx == idx && updatesReason == .stateOnly ? nil : autoFillTarget
-        let shouldKeepPreferredTarget = updatesReason == .dataEdit && preferredTarget?.idx != idx
+        let nextExcluded = excludedAutoFillIndexes
+        let preferredTarget = autoFillTarget?.idx == idx ? nil : autoFillTarget
+        let shouldKeepPreferredTarget = preferredTarget != nil
         let result = applyAutoFill(
             data: newData,
             preferredTarget: preferredTarget,
@@ -811,10 +789,6 @@ final class TimeCalculatorViewModel: ObservableObject {
             allowPreferredOverride: shouldKeepPreferredTarget
         )
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
-    }
-
-    private func handleWeeklyManualUpdate(idx: Int, mutation: (inout DayWorkData) -> Void) {
-        handleWeeklyUpdate(idx: idx, updatesReason: .dataEdit, mutation: mutation)
     }
 
     private func commitWeeklyState(data: [DayWorkData], target: AutoFillTarget?, excludedIndexes: [Int]) {
@@ -889,7 +863,9 @@ final class TimeCalculatorViewModel: ObservableObject {
         let inferredTarget = inferAutoFillTarget(data: data, excludedIndexes: excludedIndexes)
         let resolvedTarget: AutoFillTarget?
 
-        if isValidAutoFillTarget(data: data, target: preferredTarget),
+        if let preferredTarget,
+           isValidAutoFillTarget(data: data, target: preferredTarget),
+           !excludedIndexes.contains(preferredTarget.idx),
            (allowPreferredOverride || isSameAutoFillTarget(preferredTarget, inferredTarget)) {
             resolvedTarget = preferredTarget
         } else {
@@ -898,6 +874,17 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         guard let resolvedTarget else {
             return (data, nil)
+        }
+        guard data.enumerated().allSatisfy({ index, day in
+            index == resolvedTarget.idx || isCompleteWeeklyDay(day)
+        }) else {
+            var pendingData = data
+            switch resolvedTarget.type {
+            case .manual: pendingData[resolvedTarget.idx].manualHours = ""; pendingData[resolvedTarget.idx].manualMinutes = ""
+            case .start: pendingData[resolvedTarget.idx].start = ""
+            case .end: pendingData[resolvedTarget.idx].end = ""
+            }
+            return (pendingData, resolvedTarget)
         }
 
         var nextData = data
@@ -912,219 +899,22 @@ final class TimeCalculatorViewModel: ObservableObject {
             workMinutes: targetRecognizedMinutes - leaveCreditMinutes
         )
 
+        let day = nextData[resolvedTarget.idx]
         switch resolvedTarget.type {
         case .manual:
             nextData[resolvedTarget.idx].manualHours = String(targetWorkMinutes / 60)
             nextData[resolvedTarget.idx].manualMinutes = String(targetWorkMinutes % 60)
         case .end:
-            nextData[resolvedTarget.idx].end = minutesToTime(
-                calculateReverseTime(
-                    baseTimeMinutes: timeToMinutes(nextData[resolvedTarget.idx].start),
-                    targetMinutes: targetWorkMinutes,
-                    type: .end
-                )
-            )
+            let start = max(earliestStartMinutes, timeToMinutes(day.start))
+            var end = calculateReverseTime(baseTimeMinutes: start, targetMinutes: targetWorkMinutes, type: .end)
+            if day.leaveType == .none { end = max(end, 15 * 60 + 30) }
+            nextData[resolvedTarget.idx].end = minutesToTime(end)
         case .start:
-            nextData[resolvedTarget.idx].start = minutesToTime(
-                calculateReverseTime(
-                    baseTimeMinutes: timeToMinutes(nextData[resolvedTarget.idx].end),
-                    targetMinutes: targetWorkMinutes,
-                    type: .start
-                )
-            )
-        }
-
-        if resolvedTarget.type == .start, !nextData[resolvedTarget.idx].start.isEmpty {
-            nextData[resolvedTarget.idx].start = minutesToTime(max(earliestStartMinutes, timeToMinutes(nextData[resolvedTarget.idx].start)))
+            var start = calculateReverseTime(baseTimeMinutes: timeToMinutes(day.end), targetMinutes: targetWorkMinutes, type: .start)
+            if day.leaveType == .none { start = min(start, 10 * 60 + 30) }
+            nextData[resolvedTarget.idx].start = minutesToTime(max(earliestStartMinutes, start))
         }
         return (nextData, resolvedTarget)
-    }
-
-    private func getRangeAutoFillTarget(
-        data: [DayWorkData],
-        idx: Int,
-        editedField: AutoFillType,
-        excludedIndexes: [Int]
-    ) -> AutoFillTarget? {
-        let day = data[idx]
-        if day.mode != .range || day.leaveType == .annual {
-            return nil
-        }
-
-        let targetType: AutoFillType = editedField == .start ? .end : .start
-        if targetType == .end && day.start.isEmpty {
-            return nil
-        }
-        if targetType == .start && day.end.isEmpty {
-            return nil
-        }
-
-        var probeData = data
-        switch targetType {
-        case .end:
-            probeData[idx].end = ""
-        case .start:
-            probeData[idx].start = ""
-        case .manual:
-            break
-        }
-
-        let preferredTarget = AutoFillTarget(idx: idx, type: targetType)
-        let inferredTarget = inferAutoFillTarget(data: probeData, excludedIndexes: excludedIndexes)
-        return isSameAutoFillTarget(inferredTarget, preferredTarget) ? preferredTarget : nil
-    }
-
-    private func shouldApplyRangeAutoFill(data: [DayWorkData], preferredTarget: AutoFillTarget?) -> Bool {
-        guard let preferredTarget else {
-            return false
-        }
-        return isSameAutoFillTarget(lastAutoFillCandidate(in: data), preferredTarget)
-    }
-
-    private func clearedDataForRangeEdit(data: [DayWorkData], editedIndex: Int) -> [DayWorkData] {
-        guard let currentAutoFillTarget = autoFillTarget, currentAutoFillTarget.idx != editedIndex else {
-            return data
-        }
-
-        return clearAutoFilledDayValue(data: data, target: currentAutoFillTarget)
-    }
-
-    private func finalizeWeeklyManualEntryIfNeeded(idx: Int) {
-        guard weeklyData.indices.contains(idx) else {
-            return
-        }
-
-        let day = weeklyData[idx]
-        guard day.mode == .manual, day.leaveType != .annual else {
-            return
-        }
-
-        guard !day.manualHours.isEmpty || !day.manualMinutes.isEmpty else {
-            return
-        }
-
-        if shouldDeferLastWorkingDayAutoFillWhileEditing(idx: idx) {
-            cancelDeferredWeeklyAutoFill()
-            var finalizedData = weeklyData
-            if finalizedData[idx].manualMinutes.isEmpty {
-                finalizedData[idx].manualMinutes = "0"
-            }
-
-            let nextExcluded = excludedAutoFillIndexes.filter { $0 != idx }
-            let preferredTarget = preferredLastWorkingDayTarget(in: finalizedData)
-            let result = applyAutoFill(
-                data: finalizedData,
-                preferredTarget: preferredTarget,
-                excludedIndexes: nextExcluded,
-                allowPreferredOverride: preferredTarget != nil
-            )
-            commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
-            return
-        }
-
-        if day.manualMinutes.isEmpty {
-            handleWeeklyManualUpdate(idx: idx) { currentDay in
-                currentDay.manualMinutes = "0"
-            }
-        }
-    }
-
-    private func shouldDeferLastWorkingDayAutoFillWhileEditing(idx: Int) -> Bool {
-        idx == lastWorkingDayBeforeAutoFillIndex
-    }
-
-    private var lastWorkingDayBeforeAutoFillIndex: Int? {
-        guard let target = lastAutoFillCandidate(in: weeklyData) else {
-            return nil
-        }
-
-        return previousActualWorkingDayIndex(before: target.idx, in: weeklyData)
-    }
-
-    private func lastAutoFillCandidate(in data: [DayWorkData]) -> AutoFillTarget? {
-        autoFillCandidates(data: data).last
-    }
-
-    private func preferredLastWorkingDayTarget(in data: [DayWorkData]) -> AutoFillTarget? {
-        inferAutoFillTarget(data: data)
-    }
-
-    private func previousActualWorkingDayIndex(before idx: Int, in data: [DayWorkData]) -> Int? {
-        guard idx > 0 else {
-            return nil
-        }
-
-        return data[..<idx].indices.last { data[$0].leaveType != .annual }
-    }
-
-    private func applyDeferredWeeklyManualEdit(idx: Int, mutation: (inout DayWorkData) -> Void) {
-        var newData = weeklyData
-        mutation(&newData[idx])
-
-        if let deferredTarget = lastAutoFillCandidate(in: newData), deferredTarget.idx != idx {
-            newData = clearAutoFilledDayValue(data: newData, target: deferredTarget)
-        }
-
-        commitWeeklyState(
-            data: newData,
-            target: preferredLastWorkingDayTarget(in: newData),
-            excludedIndexes: excludedAutoFillIndexes
-        )
-    }
-
-    private func scheduleDeferredWeeklyAutoFillIfNeeded(idx: Int) {
-        guard shouldDeferLastWorkingDayAutoFillWhileEditing(idx: idx) else {
-            return
-        }
-
-        cancelDeferredWeeklyAutoFill()
-
-        let workItem = DispatchWorkItem { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.finalizeDeferredWeeklyAutoFillIfNeeded(idx: idx)
-            }
-        }
-
-        pendingDeferredAutoFillWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: workItem)
-    }
-
-    private func finalizeDeferredWeeklyAutoFillIfNeeded(idx: Int) {
-        guard shouldDeferLastWorkingDayAutoFillWhileEditing(idx: idx),
-              weeklyData.indices.contains(idx) else {
-            return
-        }
-
-        let day = weeklyData[idx]
-        guard day.mode == .manual, !day.manualHours.isEmpty else {
-            return
-        }
-
-        cancelDeferredWeeklyAutoFill()
-        finalizeWeeklyManualEntryIfNeeded(idx: idx)
-    }
-
-    private func cancelDeferredWeeklyAutoFill() {
-        pendingDeferredAutoFillWorkItem?.cancel()
-        pendingDeferredAutoFillWorkItem = nil
-    }
-
-    private func clearAutoFilledDayValue(data: [DayWorkData], target: AutoFillTarget) -> [DayWorkData] {
-        guard data.indices.contains(target.idx) else {
-            return data
-        }
-
-        var nextData = data
-        switch target.type {
-        case .manual:
-            nextData[target.idx].manualHours = ""
-            nextData[target.idx].manualMinutes = ""
-        case .start:
-            nextData[target.idx].start = ""
-        case .end:
-            nextData[target.idx].end = ""
-        }
-        return nextData
     }
 
     private enum TodayAutoSuggestionState {

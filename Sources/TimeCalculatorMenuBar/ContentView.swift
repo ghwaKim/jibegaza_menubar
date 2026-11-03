@@ -90,7 +90,13 @@ private var appVersionText: String {
                 .font(.body.weight(.bold))
             HStack {
                 weekSummaryCard(title: "주간 합계", value: viewModel.weekTotalText)
-                weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText)
+                weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText, valueColor: viewModel.hasRemainingWeeklyWork ? .red : .primary)
+            }
+            if let notice = viewModel.weeklyCalculationNotice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -264,7 +270,7 @@ private var appVersionText: String {
     }
 
     // 주간 합계 / 남은 시간 요약 아이템
-    private func weekSummaryCard(title: String, value: String) -> some View {
+    private func weekSummaryCard(title: String, value: String, valueColor: Color = .primary) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption2.weight(.semibold))
@@ -273,6 +279,7 @@ private var appVersionText: String {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.headline.weight(.semibold))
+                .foregroundStyle(valueColor)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
@@ -287,6 +294,11 @@ private var appVersionText: String {
                 Text("\(day.day)요일")
                     .font(.body.weight(.bold))
                     .foregroundStyle(.primary)
+                if viewModel.isWeeklyAutoCalculated(at: index) {
+                    Text("자동 계산")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 Spacer()
 
