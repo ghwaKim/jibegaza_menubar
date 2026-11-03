@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
+    @Environment(\.colorScheme) private var colorScheme
     private let koreanLocale = Locale(identifier: "ko_KR")
 
 private var appVersionText: String {
@@ -229,11 +230,12 @@ private var appVersionText: String {
     private var weekTabSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 16) {
                     ForEach(Array(weekDays.enumerated()), id: \.offset) { item in
                         weekDayCard(index: item.offset)
                     }
                 }
+                .padding(4)
             }
             .frame(height: 630)
         }
@@ -289,7 +291,7 @@ private var appVersionText: String {
     private func weekDayCard(index: Int) -> some View {
         let day = viewModel.weeklyDay(at: index)
 
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
                 Text("\(day.day)요일")
                     .font(.body.weight(.bold))
@@ -318,28 +320,30 @@ private var appVersionText: String {
                     }
                 }
             }
+            .padding(14)
 
-            if day.leaveType != .annual {
-                weeklyInputRow(day: day, index: index)
+            VStack(alignment: .leading, spacing: 12) {
+                if day.leaveType != .annual {
+                    weeklyInputRow(day: day, index: index)
+                }
+
+                HStack {
+                    Spacer()
+
+                    Text("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-
-            HStack {
-                Spacer()
-
-                Text("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .padding(14)
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
+        .background(colorScheme == .dark ? Color(white: 0.23) : Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.6)
+                .stroke(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08), lineWidth: 0.5)
         )
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.24 : 0.12), radius: 3, x: 0, y: 2)
     }
 
     // 주간 카드의 입력 행: 구간 입력 또는 합계 입력
