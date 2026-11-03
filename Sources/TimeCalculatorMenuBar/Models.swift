@@ -18,7 +18,7 @@ enum WorkTab: String, CaseIterable, Identifiable {
 
 enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     case worked
-    case remaining
+    case untilDeparture
     case hidden
 
     var id: String { rawValue }
@@ -27,8 +27,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .worked:
             return "지금까지 근무시간"
-        case .remaining:
-            return "남은 근무시간"
+        case .untilDeparture:
+            return "퇴근까지 남은 시간"
         case .hidden:
             return "시간 숨기기"
         }
@@ -51,7 +51,7 @@ struct MenuBarDisplayMode: Codable, Equatable {
         switch metric {
         case .worked:
             return "⏱️"
-        case .remaining:
+        case .untilDeparture:
             return "⏳"
         case .hidden:
             return "🌍"
@@ -62,8 +62,8 @@ struct MenuBarDisplayMode: Codable, Equatable {
         switch metric {
         case .worked:
             return "오늘 총 근무시간"
-        case .remaining:
-            return "오늘 남은 근무시간"
+        case .untilDeparture:
+            return "퇴근까지 남은 시간"
         case .hidden:
             return "시간 숨기기"
         }
@@ -73,7 +73,7 @@ struct MenuBarDisplayMode: Codable, Equatable {
         switch metric {
         case .worked:
             return "⏱️"
-        case .remaining:
+        case .untilDeparture:
             return "⏳"
         case .hidden:
             return "🌍"
@@ -82,7 +82,12 @@ struct MenuBarDisplayMode: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        metric = try container.decode(MenuBarMetric.self, forKey: .metric)
+        let savedMetric = try container.decode(String.self, forKey: .metric)
+        if savedMetric == "remaining" {
+            metric = .untilDeparture
+        } else {
+            metric = try container.decode(MenuBarMetric.self, forKey: .metric)
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -186,6 +191,21 @@ struct DayWorkData: Codable, Identifiable {
     var lockStart: Bool
     var lockEnd: Bool
     var lockManual: Bool
+    var isConfirmed: Bool = false
+
+    func isLocked(_ field: AutoFillType) -> Bool {
+        if isConfirmed { return true }
+        switch field {
+        case .start: return lockStart
+        case .end: return lockEnd
+        case .manual: return lockManual
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case day, mode, start, end, manualHours, manualMinutes, leaveType
+        case lockStart, lockEnd, lockManual, isConfirmed
+    }
 
     var id: String { day }
 }
@@ -199,4 +219,29 @@ enum AutoFillType: String, Codable {
 struct AutoFillTarget: Codable, Equatable {
     var idx: Int
     var type: AutoFillType
+}
+
+// Keep records saved before day confirmation was introduced readable.
+extension DayWorkData {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        day = try values.decode(String.self, forKey: .day)
+        mode = try values.decode(InputMode.self, forKey: .mode)
+        start = try values.decode(String.self, forKey: .start)
+        end = try values.decode(String.self, forKey: .end)
+        manualHours = try values.decode(String.self, forKey: .manualHours)
+        manualMinutes = try values.decode(String.self, forKey: .manualMinutes)
+        leaveType = try values.decode(LeaveType.self, forKey: .leaveType)
+        lockStart = try values.decodeIfPresent(Bool.self, forKey: .lockStart) ?? false
+        lockEnd = try values.decodeIfPresent(Bool.self, forKey: .lockEnd) ?? false
+        lockManual = try values.decodeIfPresent(Bool.self, forKey: .lockManual) ?? false
+        isConfirmed = try values.decodeIfPresent(Bool.self, forKey: .isConfirmed) ?? false
+        // Hidden legacy pins must remain releasable through the day lock.
+        if lockManual { isConfirmed = true; lockManual = false }
+        if mode == .manual || leaveType == .annual {
+            if lockStart || lockEnd { isConfirmed = true }
+            lockStart = false
+            lockEnd = false
+        }
+    }
 }

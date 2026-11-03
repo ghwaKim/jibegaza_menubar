@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
+    @Environment(\.colorScheme) private var colorScheme
     private let koreanLocale = Locale(identifier: "ko_KR")
 
 private var appVersionText: String {
@@ -73,13 +74,12 @@ private var appVersionText: String {
 
             Picker("", selection: viewModel.menuBarMetricBinding) {
                 Text("⏱️ 오늘 총 근무시간").tag(MenuBarMetric.worked)
-                Text("⏳ 오늘 남은 근무시간").tag(MenuBarMetric.remaining)
+                Text("⏳ 퇴근까지 남은 시간").tag(MenuBarMetric.untilDeparture)
                 Text("🏃‍♂️ 시간 숨기기").tag(MenuBarMetric.hidden)
             }
             .labelsHidden()
             .pickerStyle(.radioGroup)
         }
-        .frame(height: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
     }
@@ -91,10 +91,15 @@ private var appVersionText: String {
                 .font(.body.weight(.bold))
             HStack {
                 weekSummaryCard(title: "주간 합계", value: viewModel.weekTotalText)
-                weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText)
+                weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText, valueColor: viewModel.hasRemainingWeeklyWork ? .red : .primary)
+            }
+            if let notice = viewModel.weeklyCalculationNotice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(height: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
     }
@@ -130,9 +135,10 @@ private var appVersionText: String {
                 VStack(alignment: .leading, spacing: 10) {
                     summaryLine(title: "목표 근무 시간", value: viewModel.formattedTargetWork)
                     summaryLine(title: "출근 시간", value: viewModel.formattedStartTime)
-                    summaryLine(title: "퇴근 시간", value: viewModel.formattedEndTime)
+                    summaryLine(title: "퇴근 가능 시각", value: viewModel.formattedEndTime)
                     summaryLine(title: "오늘 총 근무시간", value: viewModel.formattedWorkedToday)
-                    summaryLine(title: "오늘 남은 근무시간", value: viewModel.formattedRemainingToday)
+                    summaryLine(title: viewModel.remainingWorkLabel, value: viewModel.formattedRemainingToday, description: "(목표 근무시간까지 남은 시간 · 휴게시간 제외)")
+                    summaryLine(title: "퇴근까지 남은 시간", value: viewModel.formattedRemainingDeparture, description: "(퇴근 가능 시각까지 남은 시간 · 휴게시간 및 코어타임 반영)")
                 }
             }
             .panelStyle()
@@ -222,16 +228,12 @@ private var appVersionText: String {
 
     // 주간 시간 계산 탭 전체
     private var weekTabSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(weekDays.enumerated()), id: \.offset) { item in
-                        weekDayCard(index: item.offset)
-                    }
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(weekDays.enumerated()), id: \.offset) { item in
+                weekDayCard(index: item.offset)
             }
-            .frame(height: 630)
         }
+        .padding(4)
     }
 
     // 하단 앱 종료 / 리셋 버튼
@@ -265,7 +267,7 @@ private var appVersionText: String {
     }
 
     // 주간 합계 / 남은 시간 요약 아이템
-    private func weekSummaryCard(title: String, value: String) -> some View {
+    private func weekSummaryCard(title: String, value: String, valueColor: Color = .primary) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption2.weight(.semibold))
@@ -274,6 +276,7 @@ private var appVersionText: String {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.headline.weight(.semibold))
+                .foregroundStyle(valueColor)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
@@ -283,15 +286,20 @@ private var appVersionText: String {
     private func weekDayCard(index: Int) -> some View {
         let day = viewModel.weeklyDay(at: index)
 
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center) {
                 Text("\(day.day)요일")
                     .font(.body.weight(.bold))
                     .foregroundStyle(.primary)
+                if viewModel.isWeeklyAutoCalculated(at: index) {
+                    Text("자동 계산")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-                Spacer()
+                Spacer(minLength: 2)
 
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     borderlessMenuPicker(
                         selection: weeklyLeaveTypeBinding(index: index),
                         width: 76
@@ -306,29 +314,56 @@ private var appVersionText: String {
                         mode.title
                     }
                 }
+                .disabled(day.isConfirmed || day.lockStart || day.lockEnd || day.lockManual)
+
+                if day.mode == .range && day.leaveType != .annual {
+                    Menu {
+                        Button(day.lockStart ? "출근 고정 해제" : "출근 고정") {
+                            viewModel.toggleWeeklyLock(idx: index, field: .start)
+                        }.disabled(day.start.isEmpty)
+                        Button(day.lockEnd ? "퇴근 고정 해제" : "퇴근 고정") {
+                            viewModel.toggleWeeklyLock(idx: index, field: .end)
+                        }.disabled(day.end.isEmpty)
+                    } label: {
+                        Image(systemName: day.lockStart || day.lockEnd ? "pin.fill" : "pin")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .disabled(day.isConfirmed)
+                    .accessibilityLabel("시간 고정")
+                }
+
+                Button {
+                    viewModel.toggleWeeklyConfirmation(idx: index)
+                } label: {
+                    Image(systemName: day.isConfirmed ? "lock.fill" : "lock.open")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(day.isConfirmed ? Color.accentColor : Color.secondary)
+                .disabled(!viewModel.canConfirmWeeklyDay(at: index))
+                .accessibilityLabel(day.isConfirmed ? "기록 확정 해제" : "요일 기록 확정")
             }
 
             if day.leaveType != .annual {
                 weeklyInputRow(day: day, index: index)
-            }
-
-            HStack {
-                Spacer()
-
-                Text("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Spacer()
+                    Text("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color(white: 0.23) : Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.6)
+                .stroke(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08), lineWidth: 0.5)
         )
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.24 : 0.12), radius: 3, x: 0, y: 2)
     }
 
     // 주간 카드의 입력 행: 구간 입력 또는 합계 입력
@@ -342,6 +377,7 @@ private var appVersionText: String {
                         selection: weeklyStartDateBinding(index: index),
                         activate: { viewModel.updateWeeklyStart(idx: index, value: "09:00") }
                     )
+                    .disabled(day.isLocked(.start))
 
                     Text("~")
                         .frame(width: 10, alignment: .center)
@@ -353,23 +389,30 @@ private var appVersionText: String {
                         selection: weeklyEndDateBinding(index: index),
                         activate: { viewModel.updateWeeklyEnd(idx: index, value: "18:00") }
                     )
+                    .disabled(day.isLocked(.end))
                 }
             } else {
                 HStack(spacing: 12) {
                     manualField(
                         title: "시간",
                         text: weeklyManualHoursBinding(index: index),
-                        disabled: false
+                        disabled: day.isLocked(.manual)
                     )
                     manualField(
                         title: "분",
                         text: weeklyManualMinutesBinding(index: index),
-                        disabled: false
+                        disabled: day.isLocked(.manual)
                     )
                 }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
+
+            Text("인정 \(viewModel.weeklyDayRecognizedText(at: index))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+                .accessibilityLabel("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
 
             Button {
                 viewModel.resetWeeklyDay(idx: index)
@@ -379,6 +422,7 @@ private var appVersionText: String {
                     .padding(6)
             }
             .buttonStyle(.plain)
+            .disabled(day.isConfirmed || day.lockStart || day.lockEnd || day.lockManual)
             .foregroundStyle(.tertiary) 
             .background(
                 Circle() 
@@ -530,18 +574,26 @@ private var appVersionText: String {
     }
 
     // 오늘 탭 요약 행
-    private func summaryLine(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 12)
-            Text(value)
-                .font(.subheadline.monospacedDigit()) 
-                .fontWeight(.semibold) 
-                .foregroundStyle(.primary)
+    private func summaryLine(title: String, value: String, description: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Text(value)
+                    .font(.subheadline.monospacedDigit())
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+            }
+            .font(.system(size: 13))
+            if let description {
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .font(.system(size: 13))
     }
 
     // 오늘 탭 비어 있는 시간 placeholder 표시 제어
