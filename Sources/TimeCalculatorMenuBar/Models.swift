@@ -191,6 +191,21 @@ struct DayWorkData: Codable, Identifiable {
     var lockStart: Bool
     var lockEnd: Bool
     var lockManual: Bool
+    var isConfirmed: Bool = false
+
+    func isLocked(_ field: AutoFillType) -> Bool {
+        if isConfirmed { return true }
+        switch field {
+        case .start: return lockStart
+        case .end: return lockEnd
+        case .manual: return lockManual
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case day, mode, start, end, manualHours, manualMinutes, leaveType
+        case lockStart, lockEnd, lockManual, isConfirmed
+    }
 
     var id: String { day }
 }
@@ -204,4 +219,29 @@ enum AutoFillType: String, Codable {
 struct AutoFillTarget: Codable, Equatable {
     var idx: Int
     var type: AutoFillType
+}
+
+// Keep records saved before day confirmation was introduced readable.
+extension DayWorkData {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        day = try values.decode(String.self, forKey: .day)
+        mode = try values.decode(InputMode.self, forKey: .mode)
+        start = try values.decode(String.self, forKey: .start)
+        end = try values.decode(String.self, forKey: .end)
+        manualHours = try values.decode(String.self, forKey: .manualHours)
+        manualMinutes = try values.decode(String.self, forKey: .manualMinutes)
+        leaveType = try values.decode(LeaveType.self, forKey: .leaveType)
+        lockStart = try values.decodeIfPresent(Bool.self, forKey: .lockStart) ?? false
+        lockEnd = try values.decodeIfPresent(Bool.self, forKey: .lockEnd) ?? false
+        lockManual = try values.decodeIfPresent(Bool.self, forKey: .lockManual) ?? false
+        isConfirmed = try values.decodeIfPresent(Bool.self, forKey: .isConfirmed) ?? false
+        // Hidden legacy pins must remain releasable through the day lock.
+        if lockManual { isConfirmed = true; lockManual = false }
+        if mode == .manual || leaveType == .annual {
+            if lockStart || lockEnd { isConfirmed = true }
+            lockStart = false
+            lockEnd = false
+        }
+    }
 }

@@ -228,17 +228,12 @@ private var appVersionText: String {
 
     // 주간 시간 계산 탭 전체
     private var weekTabSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    ForEach(Array(weekDays.enumerated()), id: \.offset) { item in
-                        weekDayCard(index: item.offset)
-                    }
-                }
-                .padding(4)
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(weekDays.enumerated()), id: \.offset) { item in
+                weekDayCard(index: item.offset)
             }
-            .frame(height: 630)
         }
+        .padding(4)
     }
 
     // 하단 앱 종료 / 리셋 버튼
@@ -291,7 +286,7 @@ private var appVersionText: String {
     private func weekDayCard(index: Int) -> some View {
         let day = viewModel.weeklyDay(at: index)
 
-        return VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center) {
                 Text("\(day.day)요일")
                     .font(.body.weight(.bold))
@@ -302,9 +297,9 @@ private var appVersionText: String {
                         .foregroundStyle(.secondary)
                 }
 
-                Spacer()
+                Spacer(minLength: 2)
 
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     borderlessMenuPicker(
                         selection: weeklyLeaveTypeBinding(index: index),
                         width: 76
@@ -319,24 +314,49 @@ private var appVersionText: String {
                         mode.title
                     }
                 }
-            }
-            .padding(14)
+                .disabled(day.isConfirmed || day.lockStart || day.lockEnd || day.lockManual)
 
-            VStack(alignment: .leading, spacing: 12) {
-                if day.leaveType != .annual {
-                    weeklyInputRow(day: day, index: index)
+                if day.mode == .range && day.leaveType != .annual {
+                    Menu {
+                        Button(day.lockStart ? "출근 고정 해제" : "출근 고정") {
+                            viewModel.toggleWeeklyLock(idx: index, field: .start)
+                        }.disabled(day.start.isEmpty)
+                        Button(day.lockEnd ? "퇴근 고정 해제" : "퇴근 고정") {
+                            viewModel.toggleWeeklyLock(idx: index, field: .end)
+                        }.disabled(day.end.isEmpty)
+                    } label: {
+                        Image(systemName: day.lockStart || day.lockEnd ? "pin.fill" : "pin")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .disabled(day.isConfirmed)
+                    .accessibilityLabel("시간 고정")
                 }
 
+                Button {
+                    viewModel.toggleWeeklyConfirmation(idx: index)
+                } label: {
+                    Image(systemName: day.isConfirmed ? "lock.fill" : "lock.open")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(day.isConfirmed ? Color.accentColor : Color.secondary)
+                .disabled(!viewModel.canConfirmWeeklyDay(at: index))
+                .accessibilityLabel(day.isConfirmed ? "기록 확정 해제" : "요일 기록 확정")
+            }
+
+            if day.leaveType != .annual {
+                weeklyInputRow(day: day, index: index)
+            } else {
                 HStack {
                     Spacer()
-
                     Text("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(14)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(colorScheme == .dark ? Color(white: 0.23) : Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
@@ -357,6 +377,7 @@ private var appVersionText: String {
                         selection: weeklyStartDateBinding(index: index),
                         activate: { viewModel.updateWeeklyStart(idx: index, value: "09:00") }
                     )
+                    .disabled(day.isLocked(.start))
 
                     Text("~")
                         .frame(width: 10, alignment: .center)
@@ -368,23 +389,30 @@ private var appVersionText: String {
                         selection: weeklyEndDateBinding(index: index),
                         activate: { viewModel.updateWeeklyEnd(idx: index, value: "18:00") }
                     )
+                    .disabled(day.isLocked(.end))
                 }
             } else {
                 HStack(spacing: 12) {
                     manualField(
                         title: "시간",
                         text: weeklyManualHoursBinding(index: index),
-                        disabled: false
+                        disabled: day.isLocked(.manual)
                     )
                     manualField(
                         title: "분",
                         text: weeklyManualMinutesBinding(index: index),
-                        disabled: false
+                        disabled: day.isLocked(.manual)
                     )
                 }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
+
+            Text("인정 \(viewModel.weeklyDayRecognizedText(at: index))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+                .accessibilityLabel("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
 
             Button {
                 viewModel.resetWeeklyDay(idx: index)
@@ -394,6 +422,7 @@ private var appVersionText: String {
                     .padding(6)
             }
             .buttonStyle(.plain)
+            .disabled(day.isConfirmed || day.lockStart || day.lockEnd || day.lockManual)
             .foregroundStyle(.tertiary) 
             .background(
                 Circle() 

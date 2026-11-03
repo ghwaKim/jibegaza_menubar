@@ -90,6 +90,11 @@ final class TimeCalculatorViewModel: ObservableObject {
         isManualTargetSelectionActive = defaults.object(forKey: Keys.isManualTargetSelectionActive) as? Bool ?? false
         autoSuggestedTargetMinutes = nil
 
+        if let target = autoFillTarget, !isValidAutoFillTarget(data: weeklyData, target: target) {
+            autoFillTarget = nil
+            defaults.removeObject(forKey: Keys.autoFillTarget)
+        }
+
         if shouldResetForNewDay(referenceDate: now) {
             resetTodayForNewDay(referenceDate: now)
         } else {
@@ -185,7 +190,13 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     var weeklyCalculationNotice: String? {
-        guard let target = autoFillTarget else { return nil }
+        guard let target = autoFillTarget else {
+            if weeklyData.contains(where: { $0.isConfirmed || $0.lockStart || $0.lockEnd || $0.lockManual }),
+               weeklyData.allSatisfy(isCompleteWeeklyDay), weeklyWorkedMinutes < weeklyGoalMinutes {
+                return "주 40시간까지 " + formatMinutesToKorean(weeklyGoalMinutes - weeklyWorkedMinutes) + " 부족합니다. 고정된 값은 유지됩니다. 수정하려면 잠금을 해제해주세요."
+            }
+            return nil
+        }
         let othersComplete = weeklyData.enumerated().allSatisfy { index, day in
             index == target.idx || isCompleteWeeklyDay(day)
         }
@@ -436,6 +447,48 @@ final class TimeCalculatorViewModel: ObservableObject {
         formatMinutesToKorean(getDailyMinutes(weeklyData[idx]))
     }
 
+    func toggleWeeklyConfirmation(idx: Int) {
+        guard weeklyData[idx].isConfirmed || isCompleteWeeklyDay(weeklyData[idx]) else { return }
+        var data = weeklyData
+        data[idx].isConfirmed.toggle()
+        let preferred = autoFillTarget?.idx == idx && data[idx].isConfirmed ? nil : autoFillTarget
+        let result = applyAutoFill(data: data, preferredTarget: preferred,
+                                  excludedIndexes: excludedAutoFillIndexes, allowPreferredOverride: true)
+        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excludedAutoFillIndexes)
+    }
+
+    func canConfirmWeeklyDay(at index: Int) -> Bool {
+        weeklyData[index].isConfirmed || isCompleteWeeklyDay(weeklyData[index])
+    }
+
+    func toggleWeeklyLock(idx: Int, field: AutoFillType) {
+        if field == .manual {
+            guard weeklyData[idx].mode == .manual else { return }
+            toggleWeeklyConfirmation(idx: idx)
+            return
+        }
+        guard !weeklyData[idx].isConfirmed else { return }
+        var data = weeklyData
+        switch field {
+        case .start: guard !data[idx].start.isEmpty else { return }; data[idx].lockStart.toggle()
+        case .end: guard !data[idx].end.isEmpty else { return }; data[idx].lockEnd.toggle()
+        case .manual: guard !data[idx].manualHours.isEmpty || !data[idx].manualMinutes.isEmpty else { return }; data[idx].lockManual.toggle()
+        }
+        var preferred = autoFillTarget == AutoFillTarget(idx: idx, type: field) && data[idx].isLocked(field) ? nil : autoFillTarget
+        var excluded = excludedAutoFillIndexes
+        // Pinning one endpoint makes the unlocked endpoint the calculation target.
+        if field != .manual, data[idx].isLocked(field), autoFillTarget == nil || autoFillTarget?.idx == idx {
+            let opposite: AutoFillType = field == .start ? .end : .start
+            if !data[idx].isLocked(opposite) {
+                preferred = AutoFillTarget(idx: idx, type: opposite)
+                excluded.removeAll { $0 == idx }
+            }
+        }
+        let result = applyAutoFill(data: data, preferredTarget: preferred,
+                                  excludedIndexes: excluded, allowPreferredOverride: true)
+        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
+    }
+
     func updateWeeklyLeaveType(idx: Int, leaveType: LeaveType) {
         handleWeeklyUpdate(idx: idx) { day in
             day.leaveType = leaveType
@@ -469,6 +522,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func updateWeeklyInput(idx: Int, field: AutoFillType, mutation: (inout DayWorkData) -> Void) {
+        guard !weeklyData[idx].isLocked(field) else { return }
         var data = weeklyData
         mutation(&data[idx])
         var excluded = excludedAutoFillIndexes.filter { $0 != idx }
@@ -484,6 +538,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func resetWeeklyDay(idx: Int) {
+        guard !weeklyData[idx].isConfirmed && !weeklyData[idx].lockStart && !weeklyData[idx].lockEnd && !weeklyData[idx].lockManual else { return }
         var newData = weeklyData
         newData[idx].start = ""
         newData[idx].end = ""
@@ -503,7 +558,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func fitWeeklyDayToEightHours(idx: Int) {
         let data = weeklyData[idx]
-        guard data.mode == .range, data.leaveType != .annual else {
+        guard data.mode == .range, data.leaveType != .annual, !data.isConfirmed, !data.lockStart, !data.lockEnd else {
             return
         }
 
@@ -769,6 +824,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         idx: Int,
         mutation: (inout DayWorkData) -> Void
     ) {
+        guard !weeklyData[idx].isConfirmed && !weeklyData[idx].lockStart && !weeklyData[idx].lockEnd && !weeklyData[idx].lockManual else { return }
         var newData = weeklyData
         if let target = autoFillTarget, target.idx == idx {
             switch target.type {
@@ -805,7 +861,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
 
         let day = data[target.idx]
-        if day.leaveType == .annual {
+        if day.leaveType == .annual || day.isLocked(target.type) {
             return false
         }
 
@@ -825,23 +881,23 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     private func autoFillCandidates(data: [DayWorkData], excludedIndexes: [Int] = []) -> [AutoFillTarget] {
         data.enumerated().flatMap { idx, day -> [AutoFillTarget] in
-            if excludedIndexes.contains(idx) || day.leaveType == .annual {
+            if excludedIndexes.contains(idx) || day.leaveType == .annual || day.isConfirmed {
                 return []
             }
 
             if day.mode == .manual {
                 let hasManualInput = !day.manualHours.isEmpty || !day.manualMinutes.isEmpty
-                if !hasManualInput {
+                if !hasManualInput && !day.lockManual {
                     return [AutoFillTarget(idx: idx, type: .manual)]
                 }
                 return []
             }
 
-            if !day.start.isEmpty && day.end.isEmpty {
+            if !day.start.isEmpty && day.end.isEmpty && !day.lockEnd {
                 return [AutoFillTarget(idx: idx, type: .end)]
             }
 
-            if !day.end.isEmpty && day.start.isEmpty {
+            if !day.end.isEmpty && day.start.isEmpty && !day.lockStart {
                 return [AutoFillTarget(idx: idx, type: .start)]
             }
 
