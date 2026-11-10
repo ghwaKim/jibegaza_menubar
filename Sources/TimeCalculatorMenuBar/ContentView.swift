@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    @ObservedObject private var flex = FlexConnection.shared
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
     @Environment(\.colorScheme) private var colorScheme
     private let koreanLocale = Locale(identifier: "ko_KR")
@@ -90,12 +91,27 @@ private var appVersionText: String {
             HStack {
                 Text("주간 시간 계산").font(.body.weight(.bold))
                 Spacer()
-                Button("flex 연결") {
-                    FlexConnection.shared.open { records in
-                        viewModel.importFlexRecords(records)
+                if flex.connected && !flex.needsLogin {
+                    Button {
+                        flex.readRecords()
+                    } label: {
+                        Label("동기화", systemImage: "arrow.clockwise")
                     }
+                    .disabled(flex.isReading || flex.isDisconnecting)
+                    Menu {
+                        Toggle("자동 동기화", isOn: $flex.autoSync)
+                        Button("연결 해제", role: .destructive) { flex.disconnect() }
+                    } label: {
+                        Image(systemName: "ellipsis.circle").accessibilityLabel("flex 설정")
+                    }
+                    .fixedSize()
+                } else {
+                    Button(flex.needsLogin ? "flex 다시 로그인" : "flex 연결") { flex.open() }
+                        .disabled(flex.isDisconnecting)
                 }
-                .font(.caption)
+            }
+            if flex.connected || flex.lastSync != nil {
+                flexSyncSummary
             }
             HStack {
                 weekSummaryCard(title: "주간 합계", value: viewModel.weekTotalText)
@@ -110,6 +126,35 @@ private var appVersionText: String {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
+    }
+
+    private var flexSyncSummary: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label(flex.autoSync ? "flex 자동 동기화" : "flex 연결됨", systemImage: "link")
+                Spacer()
+                if flex.isReading {
+                    ProgressView().controlSize(.small)
+                } else if let lastSync = flex.lastSync {
+                    Text(lastSync, style: .time)
+                }
+            }
+            Text(flex.message).fixedSize(horizontal: false, vertical: true)
+            if !flex.records.isEmpty {
+                Text(flex.records.map {
+                    "\($0.date.formatted(.dateTime.month().day())) \(formatMinutesToKorean($0.minutes))"
+                }.joined(separator: " · "))
+                Button("주간 기록에 반영") { flex.apply() }
+            }
+            if flex.connected && !flex.autoSync && !flex.needsLogin {
+                Button("자동 동기화 켜기") { flex.autoSync = true }
+            }
+            DisclosureGroup("상세 정보") {
+                Text(flex.diagnostic).textSelection(.enabled)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 
     // 오늘 근무 / 주간 시간 계산 탭 스위치
@@ -299,6 +344,9 @@ private var appVersionText: String {
                 Text("\(day.day)요일")
                     .font(.body.weight(.bold))
                     .foregroundStyle(.primary)
+                if day.importedFromFlex {
+                    Text("flex").font(.caption).foregroundStyle(.secondary)
+                }
                 if viewModel.isWeeklyAutoCalculated(at: index) {
                     Text("자동 계산")
                         .font(.caption)

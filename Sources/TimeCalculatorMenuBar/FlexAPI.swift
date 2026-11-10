@@ -25,6 +25,62 @@ enum FlexAPI {
         return parts.string!
     }
 
+    struct ClockStatus: Decodable {
+        struct Day: Decodable {
+            struct Record: Decodable {
+                struct Time: Decodable { let timeStamp: Double }
+                let blockTimeFrom: Time
+                let blockTimeTo: Time
+                let workFormType: String
+                let eventStatus: String
+            }
+            let date: String
+            let workRecords: [Record]
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case targetDate, onGoingRecordPack, targetDayWorkSchedule
+        }
+
+        let targetDate: String
+        let isWorking: Bool
+        let targetDayWorkSchedule: Day?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            targetDate = try container.decode(String.self, forKey: .targetDate)
+            guard container.contains(.onGoingRecordPack) else {
+                throw DecodingError.keyNotFound(CodingKeys.onGoingRecordPack,
+                    .init(codingPath: decoder.codingPath, debugDescription: "Missing work status"))
+            }
+            isWorking = try !container.decodeNil(forKey: .onGoingRecordPack)
+            targetDayWorkSchedule = isWorking ? nil : try container.decodeIfPresent(Day.self, forKey: .targetDayWorkSchedule)
+        }
+
+        func completedRecord(userID: String, now: Date, calendar: Calendar = .current) -> FlexWorkRecord? {
+            let date = calendar.startOfDay(for: now)
+            let parts = calendar.dateComponents([.year, .month, .day], from: date)
+            let today = String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
+            guard !isWorking, targetDate == today, let day = targetDayWorkSchedule, day.date == today,
+                  !day.workRecords.isEmpty else { return nil }
+            var work: [Range<Double>] = [], rest: [Range<Double>] = []
+            for record in day.workRecords {
+                let start = record.blockTimeFrom.timeStamp
+                let end = record.blockTimeTo.timeStamp
+                guard record.eventStatus == "CONFIRMED", start.isFinite, end.isFinite,
+                      start >= date.timeIntervalSince1970 * 1000, end > start,
+                      end <= now.timeIntervalSince1970 * 1000 else { return nil }
+                switch record.workFormType {
+                case "WORK": work.append(start..<end)
+                case "REST": rest.append(start..<end)
+                default: return nil
+                }
+            }
+            guard !work.isEmpty else { return nil }
+            return FlexWorkRecord(date: date, minutes: FlexAPI.netMinutes(work: work, rest: rest), accountID: userID)
+        }
+    }
+
     struct Identity: Decodable {
         struct Current: Decodable {
             struct User: Decodable { let userIdHash: String; let customerIdHash: String }
@@ -117,12 +173,7 @@ enum FlexAPI {
             guard !work.isEmpty else {
                 excluded.append("\(label): WORK 구간 없음"); continue
             }
-            let working = merged(work), breaks = merged(rest)
-            let gross = working.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
-            let overlap = working.reduce(0.0) { sum, w in
-                sum + breaks.reduce(0.0) { $0 + max(0, min(w.upperBound, $1.upperBound) - max(w.lowerBound, $1.lowerBound)) }
-            }
-            let minutes = Int(((gross - overlap) / 60_000).rounded(.down))
+            let minutes = netMinutes(work: work, rest: rest)
             guard (0...24 * 60).contains(minutes) else {
                 excluded.append("\(label): 하루 범위를 초과한 근무시간"); continue
             }
@@ -130,6 +181,15 @@ enum FlexAPI {
         }
         guard Set(records.map(\.date)).count == records.count else { throw Failure.duplicateDate }
         return Report(records: records, receivedDays: response.dailySchedules.count, excluded: excluded)
+    }
+
+    private static func netMinutes(work: [Range<Double>], rest: [Range<Double>]) -> Int {
+        let working = merged(work), breaks = merged(rest)
+        let gross = working.reduce(0.0) { $0 + $1.upperBound - $1.lowerBound }
+        let overlap = working.reduce(0.0) { sum, work in
+            sum + breaks.reduce(0.0) { $0 + max(0, min(work.upperBound, $1.upperBound) - max(work.lowerBound, $1.lowerBound)) }
+        }
+        return Int(((gross - overlap) / 60_000).rounded(.down))
     }
 
     private static func merged(_ intervals: [Range<Double>]) -> [Range<Double>] {

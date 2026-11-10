@@ -108,4 +108,50 @@ struct FlexTests {
         _ = vm.importFlexRecords([FlexWorkRecord(date: date(9), minutes: 480)], now: date(10))
         #expect(vm.weeklyData[0].manualMinutes == "15")
     }
+
+    @Test func clockStatusOnlyReturnsConfirmedEndedWork() throws {
+        let now = date(2).addingTimeInterval(7 * 3600)
+        let dayStart = calendar.startOfDay(for: now).timeIntervalSince1970 * 1000
+        func record(_ type: String, from: Int, to: Int) -> [String: Any] {
+            ["workFormType": type, "eventStatus": "CONFIRMED",
+             "blockTimeFrom": ["timeStamp": dayStart + Double(from) * 3_600_000],
+             "blockTimeTo": ["timeStamp": dayStart + Double(to) * 3_600_000]]
+        }
+        func status(ongoing: Any, end: Int) throws -> FlexAPI.ClockStatus {
+            let json: [String: Any] = [
+                "targetDate": "2026-11-02",
+                "onGoingRecordPack": ongoing,
+                "targetDayWorkSchedule": [
+                    "date": "2026-11-02",
+                    "workRecords": [record("WORK", from: 9, to: end), record("REST", from: 12, to: 13)]
+                ]
+            ]
+            return try JSONDecoder().decode(FlexAPI.ClockStatus.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        let working = try status(ongoing: ["onGoing": true], end: 18)
+        #expect(working.isWorking)
+        #expect(working.completedRecord(userID: "me", now: now, calendar: calendar) == nil)
+        let finished = try status(ongoing: NSNull(), end: 18)
+        #expect(finished.completedRecord(userID: "me", now: now, calendar: calendar)?.minutes == 480)
+        let future = try status(ongoing: NSNull(), end: 20)
+        #expect(future.completedRecord(userID: "me", now: now, calendar: calendar) == nil)
+    }
+
+    @Test func automaticImportAcceptsTodayAndKeepsManualValuesOnWeekChange() {
+        let defaults = UserDefaults(suiteName: "FlexTests.auto.\(UUID())")!
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(2))
+        let today = FlexWorkRecord(date: date(2), minutes: 480, accountID: "me")
+        _ = vm.importFlexRecords([today], now: date(2))
+        #expect(!vm.weeklyData[0].importedFromFlex)
+        _ = vm.importFlexRecords([today], now: date(2), automatic: true)
+        #expect(vm.weeklyData[0].importedFromFlex)
+        let nextMonday = FlexWorkRecord(date: date(9), minutes: 450, accountID: "me")
+        _ = vm.importFlexRecords([nextMonday], now: date(9), automatic: true)
+        #expect(vm.weeklyData[0].manualMinutes == "30")
+        vm.toggleWeeklyConfirmation(idx: 0)
+        _ = vm.importFlexRecords([FlexWorkRecord(date: date(16), minutes: 420, accountID: "me")],
+                                 now: date(16), automatic: true)
+        #expect(vm.weeklyData[0].manualMinutes == "30")
+    }
+
 }

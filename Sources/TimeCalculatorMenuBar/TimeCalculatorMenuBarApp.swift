@@ -1,16 +1,25 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let viewModel = TimeCalculatorViewModel()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        FlexConnection.shared.start(viewModel: viewModel)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake),
+            name: NSWorkspace.didWakeNotification, object: nil)
+    }
+    @objc private func didWake() {
+        FlexConnection.shared.syncAfterWake()
     }
 }
 
 @main
 struct TimeCalculatorMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var viewModel = TimeCalculatorViewModel()
+    private var viewModel: TimeCalculatorViewModel { appDelegate.viewModel }
 
     var body: some Scene {
         MenuBarExtra {
@@ -24,14 +33,22 @@ struct TimeCalculatorMenuBarApp: App {
                     }
                 }
         } label: {
-            (
-                Text(viewModel.menuBarEmoji)
-                + (viewModel.menuBarTitle.isEmpty ? Text("") : Text(" "))
-                + Text(viewModel.menuBarTitle).monospacedDigit()
-            )
-            .frame(width: 116, alignment: .leading)
+            MenuBarLabel(viewModel: viewModel)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+private struct MenuBarLabel: View {
+    @ObservedObject var viewModel: TimeCalculatorViewModel
+
+    var body: some View {
+        (
+            Text(viewModel.menuBarEmoji)
+            + (viewModel.menuBarTitle.isEmpty ? Text("") : Text(" "))
+            + Text(viewModel.menuBarTitle).monospacedDigit()
+        )
+        .frame(width: 116, alignment: .leading)
     }
 }
 
