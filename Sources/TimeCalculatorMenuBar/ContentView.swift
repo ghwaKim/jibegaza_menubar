@@ -87,8 +87,16 @@ private var appVersionText: String {
     // 주간 시간 계산 요약 카드
     private var weekSummarySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("주간 시간 계산")
-                .font(.body.weight(.bold))
+            HStack {
+                Text("주간 시간 계산").font(.body.weight(.bold))
+                Spacer()
+                Button("flex 연결") {
+                    FlexConnection.shared.open { records in
+                        viewModel.importFlexRecords(records)
+                    }
+                }
+                .font(.caption)
+            }
             HStack {
                 weekSummaryCard(title: "주간 합계", value: viewModel.weekTotalText)
                 weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText, valueColor: viewModel.hasRemainingWeeklyWork ? .red : .primary)

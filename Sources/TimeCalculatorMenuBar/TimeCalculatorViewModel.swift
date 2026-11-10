@@ -420,6 +420,8 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func resetWeeklyState() {
+        defaults.set(flexWeekStart(for: currentTime), forKey: "flex.weekStart")
+        defaults.removeObject(forKey: "flex.accountID")
         weeklyData = defaultWeekData()
         autoFillTarget = nil
         excludedAutoFillIndexes = []
@@ -845,6 +847,54 @@ final class TimeCalculatorViewModel: ObservableObject {
             allowPreferredOverride: shouldKeepPreferredTarget
         )
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
+    }
+
+    private func flexWeekStart(for date: Date) -> Date {
+        let today = calendar.startOfDay(for: date)
+        let offset = (calendar.component(.weekday, from: today) + 5) % 7
+        return calendar.date(byAdding: .day, value: -offset, to: today)!
+    }
+
+    func importFlexRecords(_ records: [FlexWorkRecord], now: Date = Date()) -> String {
+        let week = flexWeekStart(for: now)
+        let hasExisting = weeklyData.contains {
+            !$0.start.isEmpty || !$0.end.isEmpty || !$0.manualHours.isEmpty ||
+            !$0.manualMinutes.isEmpty || $0.leaveType != .none || $0.isConfirmed ||
+            $0.lockStart || $0.lockEnd || $0.lockManual
+        }
+        guard !hasExisting || defaults.object(forKey: "flex.weekStart") as? Date == week else {
+            return "저장된 기록의 주차를 확인할 수 없습니다. 필요한 기록을 보관하고 주간 Reset 후 다시 가져와주세요."
+        }
+        let accounts = Set(records.compactMap(\.accountID))
+        guard accounts.count <= 1 else { return "서로 다른 계정의 기록은 함께 가져올 수 없습니다." }
+        if let saved = defaults.string(forKey: "flex.accountID"),
+           let incoming = accounts.first, hasExisting, saved != incoming {
+            return "다른 flex 계정의 기록이 있습니다. 주간 Reset 후 다시 가져와주세요."
+        }
+        var data = weeklyData
+        var count = 0
+        // Reject duplicate dates rather than picking an arbitrary record.
+        let grouped = Dictionary(grouping: records, by: { calendar.startOfDay(for: $0.date) })
+        for (_, values) in grouped {
+            guard values.count == 1, let record = values.first,
+                  (0...24 * 60).contains(record.minutes),
+                  let index = FlexImportScope.index(for: record.date, now: now, calendar: calendar) else { continue }
+            let day = data[index]
+            guard !day.isConfirmed, !day.lockStart, !day.lockEnd, !day.lockManual,
+                  day.leaveType == .none, day.start.isEmpty, day.end.isEmpty,
+                  day.manualHours.isEmpty, day.manualMinutes.isEmpty else { continue }
+            data[index].mode = .manual
+            data[index].manualHours = String(record.minutes / 60)
+            data[index].manualMinutes = String(record.minutes % 60)
+            data[index].isConfirmed = true
+            count += 1
+        }
+        guard count > 0 else { return "반영할 빈 요일이 없습니다. 기존 입력과 잠긴 기록은 유지했습니다." }
+        defaults.set(week, forKey: "flex.weekStart")
+        if let account = accounts.first { defaults.set(account, forKey: "flex.accountID") }
+        let target = autoFillTarget.flatMap { isValidAutoFillTarget(data: data, target: $0) ? $0 : nil }
+        commitWeeklyState(data: data, target: target, excludedIndexes: excludedAutoFillIndexes)
+        return "flex 기록 \(count)일을 반영하고 잠갔습니다. 수정하려면 주간 카드의 잠금을 해제해주세요."
     }
 
     private func commitWeeklyState(data: [DayWorkData], target: AutoFillTarget?, excludedIndexes: [Int]) {
