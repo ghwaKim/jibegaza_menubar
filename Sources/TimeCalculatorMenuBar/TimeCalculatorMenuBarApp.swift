@@ -25,9 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menuBar = MenuBarController(viewModel: viewModel)
         self.menuBar = menuBar
-        FlexConnection.shared.start(viewModel: viewModel) { [weak self] in
+        FlexConnection.shared.start(viewModel: viewModel) { [weak self] tab in
             guard let self else { return }
-            self.viewModel.selectedTab = .week
+            self.viewModel.selectedTab = tab
             self.menuBar?.show()
         }
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake),

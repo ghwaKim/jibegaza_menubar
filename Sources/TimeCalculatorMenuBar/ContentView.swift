@@ -88,28 +88,7 @@ private var appVersionText: String {
     // 주간 시간 계산 요약 카드
     private var weekSummarySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("주간 시간 계산").font(.body.weight(.bold))
-                Spacer()
-                if flex.connected && !flex.needsLogin {
-                    Button {
-                        flex.readRecords()
-                    } label: {
-                        Label("동기화", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(flex.isReading || flex.isDisconnecting)
-                    Menu {
-                        Toggle("자동 동기화", isOn: $flex.autoSync)
-                        Button("연결 해제", role: .destructive) { flex.disconnect() }
-                    } label: {
-                        Image(systemName: "ellipsis.circle").accessibilityLabel("flex 설정")
-                    }
-                    .fixedSize()
-                } else {
-                    Button(flex.needsLogin ? "flex 다시 로그인" : "flex 연결") { flex.open() }
-                        .disabled(flex.isDisconnecting)
-                }
-            }
+            Text("주간 시간 계산").font(.body.weight(.bold))
             if flex.connected || flex.lastSync != nil {
                 flexSyncSummary
             } else {
@@ -130,6 +109,31 @@ private var appVersionText: String {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelStyle()
+    }
+
+    private func flexActionButton(returningTo tab: WorkTab) -> some View {
+        Button {
+            if flex.connected && !flex.needsLogin {
+                flex.readRecords()
+            } else {
+                flex.open(returningTo: tab)
+            }
+        } label: {
+            if flex.isReading {
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.mini)
+                    Text("동기화 중")
+                }
+            } else if flex.needsLogin {
+                Text("flex 다시 로그인")
+            } else if flex.connected {
+                Label("flex 동기화", systemImage: "arrow.clockwise")
+            } else {
+                Text("flex 연결")
+            }
+        }
+        .font(.caption.weight(.regular))
+        .disabled(flex.isReading || flex.isDisconnecting)
     }
 
     private var flexSyncSummary: some View {
@@ -157,13 +161,34 @@ private var appVersionText: String {
 
     // 오늘 근무 / 주간 시간 계산 탭 스위치
     private var tabPickerSection: some View {
-        Picker("", selection: $viewModel.selectedTab) {
-            ForEach(WorkTab.allCases) { tab in
-                Text(tab.title).tag(tab)
+        HStack(spacing: 10) {
+            Picker("", selection: $viewModel.selectedTab) {
+                ForEach(WorkTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
+                }
             }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .fixedSize(horizontal: true, vertical: false)
+
+            Spacer(minLength: 10)
+
+            if flex.connected {
+                Menu {
+                    Toggle("자동 동기화", isOn: $flex.autoSync)
+                    Button("연결 해제", role: .destructive) { flex.disconnect() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .accessibilityLabel("flex 설정")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(flex.isDisconnecting)
+            }
+
+            flexActionButton(returningTo: viewModel.selectedTab)
+                .fixedSize()
         }
-        .labelsHidden()
-        .pickerStyle(.segmented)
     }
 
     // 오늘 근무 탭 전체
@@ -178,6 +203,30 @@ private var appVersionText: String {
                     .font(.body.weight(.bold))
                 timePickerRow(title: "퇴근 시간", selection: viewModel.endTimeBinding)
                     .font(.body.weight(.bold))
+
+                if flex.connected || flex.needsLogin || flex.loginResultTitle != nil {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if flex.needsLogin {
+                            Text("flex에 다시 로그인해주세요.")
+                        } else if flex.isReading {
+                            Text("오늘 출근 시각을 동기화하고 있어요.")
+                        } else if let syncedAt = flex.todaySyncedAt,
+                                  !Calendar.current.isDateInToday(syncedAt) {
+                            Text("오늘 출근 시각을 아직 동기화하지 않았어요.")
+                        } else {
+                            Text(flex.todaySyncMessage)
+                            if let syncedAt = flex.todaySyncedAt {
+                                HStack(spacing: 4) {
+                                    Text("마지막 동기화")
+                                    Text(syncedAt, style: .time)
+                                }
+                            }
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .panelStyle()
 

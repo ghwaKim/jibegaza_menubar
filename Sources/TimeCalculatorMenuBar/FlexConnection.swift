@@ -6,11 +6,14 @@ import WebKit
 final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver, NSWindowDelegate {
     static let shared = FlexConnection()
     @Published var message = "flex에 로그인해주세요. 로그인 세션으로 이번 주 기록을 조회합니다."
+    @Published private(set) var todaySyncMessage = "오늘 출근 시각을 아직 동기화하지 않았어요."
+    @Published private(set) var todaySyncedAt: Date?
     @Published var isReading = false
     let webView: WKWebView
     private var window: NSWindow?
     @Published private(set) var loginResultTitle: String?
-    private var onLoginFinished: (() -> Void)?
+    private var onLoginFinished: ((WorkTab) -> Void)?
+    private var loginReturnTab: WorkTab = .week
     private weak var viewModel: TimeCalculatorViewModel?
     private var generation = 0
     private let client = FlexSessionClient()
@@ -42,7 +45,7 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
     private var attemptedRefresh = false
     private let observedShiftKey = "flex.observedShift"
 
-    func start(viewModel: TimeCalculatorViewModel, onLoginFinished: @escaping () -> Void) {
+    func start(viewModel: TimeCalculatorViewModel, onLoginFinished: @escaping (WorkTab) -> Void) {
         self.viewModel = viewModel
         self.onLoginFinished = onLoginFinished
         guard pollTask == nil else { return }
@@ -76,7 +79,8 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         configuration.websiteDataStore.httpCookieStore.add(self)
     }
 
-    func open() {
+    func open(returningTo tab: WorkTab) {
+        loginReturnTab = tab
         if window?.isVisible == true {
             window?.makeKeyAndOrderFront(nil)
             return
@@ -143,7 +147,9 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
                 do {
                     completedToday = try await self.readCompletedShift(userID: userID, cookies: cookies, now: now, generation: generation)
                 } catch {
+                    guard generation == self.generation else { return }
                     clockStatusFailed = true
+                    self.todaySyncMessage = "오늘 출근 시각을 가져오지 못했어요. 다시 동기화해주세요."
                 }
                 guard generation == self.generation else { return }
                 stage = "근무 조회"
@@ -203,6 +209,9 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
                 }
                 if !(error is DecodingError) { self.diagnostic = "\(stage) · \(reason)" }
                 self.message = reason
+                if stage == "본인 조회" || stage == "본인 응답 해석" {
+                    self.todaySyncMessage = reason
+                }
                 if verifiedLogin, !expired, self.window?.isVisible == true {
                     self.completeConnection()
                     self.message = "flex에 연결했지만 이번 주 근무기록을 가져오지 못했어요."
@@ -237,7 +246,13 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         let status = try JSONDecoder().decode(FlexAPI.ClockStatus.self, from: data)
         if let clockIn = status.clockInDate(now: now) {
             viewModel?.syncFlexClockIn(clockIn, now: now)
+            todaySyncMessage = "flex 출근 시각을 동기화했어요."
+        } else {
+            todaySyncMessage = status.isWorking
+                ? "flex 출근 시각을 확인할 수 없어요."
+                : "오늘 동기화할 출근 기록이 없어요."
         }
+        todaySyncedAt = now
         let observed = [userID, status.targetDate]
         if status.isWorking {
             UserDefaults.standard.set(observed, forKey: observedShiftKey)
@@ -280,7 +295,7 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         guard window?.isVisible == true else { return }
         loginResultTitle = title
         window?.orderOut(nil)
-        onLoginFinished?()
+        onLoginFinished?(loginReturnTab)
     }
 
     func disconnect() {
@@ -294,6 +309,8 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         viewModel?.clearFlexClockInSource()
         autoSync = false
         lastSync = nil
+        todaySyncedAt = nil
+        todaySyncMessage = "오늘 출근 시각을 아직 동기화하지 않았어요."
         loginResultTitle = nil
         UserDefaults.standard.removeObject(forKey: observedShiftKey)
         lastObservedAID = nil

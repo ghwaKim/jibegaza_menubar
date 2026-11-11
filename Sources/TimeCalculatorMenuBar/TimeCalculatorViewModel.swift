@@ -324,6 +324,9 @@ final class TimeCalculatorViewModel: ObservableObject {
         isStartTimeFromFlex = true
         lastEditedField = .startTime
         alignTimesUsingLastEditedField()
+        if menuBarDisplayMode == nil {
+            setMenuBarDisplayMode(MenuBarDisplayMode(metric: .untilDeparture))
+        }
         persistTodayState()
     }
 
@@ -665,7 +668,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         lastEditedField = .startTime
         manualOverrideTargetMinutes = nil
         isManualTargetSelectionActive = false
-        setMenuBarDisplayMode(nil)
         defaults.set(trackedDayStart, forKey: Keys.lastActiveDayStart)
         refreshTodayTargetFromCurrentContext(syncInputFields: true)
         persistTodayState()
