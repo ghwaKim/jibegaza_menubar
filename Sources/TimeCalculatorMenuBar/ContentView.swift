@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    @ObservedObject private var updater = AppUpdater.shared
     @ObservedObject private var flex = FlexConnection.shared
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
     @Environment(\.colorScheme) private var colorScheme
@@ -47,6 +48,10 @@ private var appVersionText: String {
                 Text("🏃‍♂️💨")
             }
             Spacer()
+            Button("업데이트 확인…") { updater.checkForUpdates() }
+                .font(.caption)
+                .disabled(!updater.canCheckForUpdates)
+                .padding(.trailing, 10)
             Text(appVersionText)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)

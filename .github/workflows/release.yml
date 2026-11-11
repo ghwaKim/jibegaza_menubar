@@ -1,0 +1,72 @@
+name: Release macOS app
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '새 버전 (예: 1.4). 기존 배포보다 커야 합니다.'
+        required: true
+        type: string
+      build_number:
+        description: '새 빌드 번호 (예: 5). 기존 배포보다 커야 합니다.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jibegaza-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Secrets are used only for a manual release of the default branch in this repository.
+    if: github.repository == 'ghwaKim/jibegaza_menubar' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_BUILD_NUMBER: ${{ inputs.build_number }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Check release numbers and existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_release.py
+
+      - name: Configure public verification key
+        env:
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+        run: zsh scripts/setup_updates.sh "$SPARKLE_PUBLIC_KEY"
+
+      - name: Run tests
+        run: |
+          python3 -m unittest discover -s scripts/tests -v
+          zsh scripts/test.sh
+
+      - name: Build, sign, validate and publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SPARKLE_PRIVATE_KEY" ]]; then
+            echo 'Set the SPARKLE_PRIVATE_KEY repository secret before releasing.' >&2
+            exit 1
+          fi
+          umask 077
+          export SPARKLE_PRIVATE_KEY_FILE
+          SPARKLE_PRIVATE_KEY_FILE="$(mktemp "$RUNNER_TEMP/jibegaza-signing.XXXXXX")"
+          trap 'rm -f "$SPARKLE_PRIVATE_KEY_FILE"' EXIT
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$SPARKLE_PRIVATE_KEY_FILE"
+          unset SPARKLE_PRIVATE_KEY
+          zsh scripts/build_app.sh --release
+          zsh scripts/publish_release.sh
