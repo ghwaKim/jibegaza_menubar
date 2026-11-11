@@ -22,6 +22,8 @@
     <string>1.3</string>
 	<key>CFBundleVersion</key>
     <string>4</string>
+	<key>SUPublicEDKey</key>
+	<string>d91yr3t+8D9+6CchxElj2xzYV2QyNIKsTBBF2kjhQ8k=</string>
 	<key>SUFeedURL</key>
 	<string>https://github.com/ghwaKim/jibegaza_menubar/releases/latest/download/appcast.xml</string>
 	<key>SUEnableAutomaticChecks</key>

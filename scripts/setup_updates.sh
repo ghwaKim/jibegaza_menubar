@@ -12,7 +12,11 @@ import base64, sys
 if len(base64.b64decode(sys.argv[1], validate=True)) != 32:
     raise SystemExit("Expected a base64-encoded 32-byte Ed25519 public key")
 CHECK
-EXISTING_KEY="$(plutil -extract SUPublicEDKey raw "$ROOT_DIR/Resources/Info.plist" 2>/dev/null || true)"
+EXISTING_KEY=""
+# plutil can print missing-key diagnostics to stdout; only capture successful reads.
+if plutil -extract SUPublicEDKey raw "$ROOT_DIR/Resources/Info.plist" >/dev/null 2>&1; then
+  EXISTING_KEY="$(plutil -extract SUPublicEDKey raw "$ROOT_DIR/Resources/Info.plist")"
+fi
 if [[ -n "$EXISTING_KEY" && "$EXISTING_KEY" != "$PUBLIC_KEY" ]]; then
   echo "Refusing to replace the app's existing public key. Restore the original signing key." >&2
   exit 1
