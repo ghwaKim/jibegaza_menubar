@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    @ObservedObject private var flex = FlexConnection.shared
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
     @Environment(\.colorScheme) private var colorScheme
     private let koreanLocale = Locale(identifier: "ko_KR")
@@ -87,8 +88,14 @@ private var appVersionText: String {
     // 주간 시간 계산 요약 카드
     private var weekSummarySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("주간 시간 계산")
-                .font(.body.weight(.bold))
+            Text("주간 시간 계산").font(.body.weight(.bold))
+            if flex.connected || flex.lastSync != nil {
+                flexSyncSummary
+            } else {
+                Text("연결하면 이번 주 근무기록을 가져오고 이후 자동으로 동기화합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             HStack {
                 weekSummaryCard(title: "주간 합계", value: viewModel.weekTotalText)
                 weekSummaryCard(title: "남은 시간", value: viewModel.weekRemainingText, valueColor: viewModel.hasRemainingWeeklyWork ? .red : .primary)
@@ -104,15 +111,84 @@ private var appVersionText: String {
         .panelStyle()
     }
 
-    // 오늘 근무 / 주간 시간 계산 탭 스위치
-    private var tabPickerSection: some View {
-        Picker("", selection: $viewModel.selectedTab) {
-            ForEach(WorkTab.allCases) { tab in
-                Text(tab.title).tag(tab)
+    private func flexActionButton(returningTo tab: WorkTab) -> some View {
+        Button {
+            if flex.connected && !flex.needsLogin {
+                flex.readRecords()
+            } else {
+                flex.open(returningTo: tab)
+            }
+        } label: {
+            if flex.isReading {
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.mini)
+                    Text("동기화 중")
+                }
+            } else if flex.needsLogin {
+                Text("flex 다시 로그인")
+            } else if flex.connected {
+                Label("flex 동기화", systemImage: "arrow.clockwise")
+            } else {
+                Text("flex 연결")
             }
         }
-        .labelsHidden()
-        .pickerStyle(.segmented)
+        .font(.caption.weight(.regular))
+        .disabled(flex.isReading || flex.isDisconnecting)
+    }
+
+    private var flexSyncSummary: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label(flex.autoSync ? "flex 자동 동기화" : "flex 연결됨", systemImage: "link")
+                Spacer()
+                if flex.isReading {
+                    ProgressView().controlSize(.small)
+                } else if let lastSync = flex.lastSync {
+                    Text(lastSync, style: .time)
+                }
+            }
+            if let title = flex.loginResultTitle {
+                Text(title).fontWeight(.semibold).foregroundStyle(.primary)
+            }
+            Text(flex.message).fixedSize(horizontal: false, vertical: true)
+            DisclosureGroup("상세 정보") {
+                Text(flex.diagnostic).textSelection(.enabled)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    // 오늘 근무 / 주간 시간 계산 탭 스위치
+    private var tabPickerSection: some View {
+        HStack(spacing: 10) {
+            Picker("", selection: $viewModel.selectedTab) {
+                ForEach(WorkTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .fixedSize(horizontal: true, vertical: false)
+
+            Spacer(minLength: 10)
+
+            if flex.connected {
+                Menu {
+                    Toggle("자동 동기화", isOn: $flex.autoSync)
+                    Button("연결 해제", role: .destructive) { flex.disconnect() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .accessibilityLabel("flex 설정")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(flex.isDisconnecting)
+            }
+
+            flexActionButton(returningTo: viewModel.selectedTab)
+                .fixedSize()
+        }
     }
 
     // 오늘 근무 탭 전체
@@ -127,6 +203,30 @@ private var appVersionText: String {
                     .font(.body.weight(.bold))
                 timePickerRow(title: "퇴근 시간", selection: viewModel.endTimeBinding)
                     .font(.body.weight(.bold))
+
+                if flex.connected || flex.needsLogin || flex.loginResultTitle != nil {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if flex.needsLogin {
+                            Text("flex에 다시 로그인해주세요.")
+                        } else if flex.isReading {
+                            Text("오늘 출근 시각을 동기화하고 있어요.")
+                        } else if let syncedAt = flex.todaySyncedAt,
+                                  !Calendar.current.isDateInToday(syncedAt) {
+                            Text("오늘 출근 시각을 아직 동기화하지 않았어요.")
+                        } else {
+                            Text(flex.todaySyncMessage)
+                            if let syncedAt = flex.todaySyncedAt {
+                                HStack(spacing: 4) {
+                                    Text("마지막 동기화")
+                                    Text(syncedAt, style: .time)
+                                }
+                            }
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .panelStyle()
 
@@ -291,6 +391,9 @@ private var appVersionText: String {
                 Text("\(day.day)요일")
                     .font(.body.weight(.bold))
                     .foregroundStyle(.primary)
+                if day.importedFromFlex {
+                    Text("flex").font(.caption).foregroundStyle(.secondary)
+                }
                 if viewModel.isWeeklyAutoCalculated(at: index) {
                     Text("자동 계산")
                         .font(.caption)
@@ -537,6 +640,9 @@ private var appVersionText: String {
     private func timePickerRow(title: String, selection: Binding<Date>) -> some View {
         HStack {
             Text(title)
+            if title == "출근 시간", viewModel.isStartTimeFromFlex {
+                Text("flex").font(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
             if let placeholder = placeholderText(for: title) {
                 Button(placeholder) {

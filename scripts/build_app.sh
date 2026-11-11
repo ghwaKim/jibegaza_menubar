@@ -5,22 +5,65 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Jibegaza MenuBar"
 EXECUTABLE_NAME="TimeCalculatorMenuBar"
 INFO_PLIST_PATH="$ROOT_DIR/Resources/Info.plist"
-# 수정: Info.plist의 사용자 표시 버전을 zip 파일명에 포함합니다.
-APP_VERSION="$(plutil -extract CFBundleShortVersionString raw "$INFO_PLIST_PATH")"
-APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
+if (( $# > 1 )); then
+  echo "Usage: zsh scripts/build_app.sh [--test|--release]" >&2
+  exit 2
+fi
+case "${1:---test}" in
+  --test) BUILD_MODE="test" ;;
+  --release) BUILD_MODE="release" ;;
+  -h|--help)
+    echo "Usage: zsh scripts/build_app.sh [--test|--release]"
+    echo "Default: --test (keep the current version, write to dist/test)"
+    echo "--release: increment the version and build number, write to dist"
+    exit 0
+    ;;
+  *)
+    echo "Usage: zsh scripts/build_app.sh [--test|--release]" >&2
+    exit 2
+    ;;
+esac
+
+OUTPUT_DIR="$ROOT_DIR/dist"
+if [[ "$BUILD_MODE" == "test" ]]; then
+  OUTPUT_DIR="$OUTPUT_DIR/test"
+fi
+mkdir -p "$OUTPUT_DIR"
+LOCK_DIR="$ROOT_DIR/dist/.build-app.lock"
+if ! mkdir "$LOCK_DIR"; then
+  echo "Another app build is in progress: $LOCK_DIR" >&2
+  exit 1
+fi
+trap 'rm -rf "$LOCK_DIR"' EXIT
+
+CURRENT_VERSION="$(plutil -extract CFBundleShortVersionString raw "$INFO_PLIST_PATH")"
+CURRENT_BUILD="$(plutil -extract CFBundleVersion raw "$INFO_PLIST_PATH")"
+if [[ ! "$CURRENT_VERSION" =~ '^[0-9]+\.[0-9]+$' || ! "$CURRENT_BUILD" =~ '^[0-9]+$' ]]; then
+  echo "Expected a major.minor version and a numeric build number in $INFO_PLIST_PATH" >&2
+  exit 1
+fi
+APP_VERSION="$CURRENT_VERSION"
+BUILD_NUMBER="$CURRENT_BUILD"
+NEXT_PLIST="$LOCK_DIR/Info.plist"
+cp "$INFO_PLIST_PATH" "$NEXT_PLIST"
+if [[ "$BUILD_MODE" == "release" ]]; then
+  APP_VERSION="${CURRENT_VERSION%.*}.$(( ${CURRENT_VERSION##*.} + 1 ))"
+  BUILD_NUMBER="$(( CURRENT_BUILD + 1 ))"
+  plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$NEXT_PLIST"
+  plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$NEXT_PLIST"
+fi
+APP_DIR="$OUTPUT_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 RELEASE_BINARY="$ROOT_DIR/.build/release/$EXECUTABLE_NAME"
-ZIP_PATH="$ROOT_DIR/dist/$APP_NAME v$APP_VERSION.zip"
+ZIP_PATH="$OUTPUT_DIR/$APP_NAME v$APP_VERSION.zip"
 ICON_PATH="$ROOT_DIR/Resources/AppIcon.icns"
 EXPORT_IMAGE_PATH="$ROOT_DIR/Assets/Export/앱_실행_방법.png"
-DIST_EXPORT_IMAGE_PATH="$ROOT_DIR/dist/앱_실행_방법.png"
-PACKAGE_DIR="$ROOT_DIR/dist/$APP_NAME Package"
+DIST_EXPORT_IMAGE_PATH="$OUTPUT_DIR/앱_실행_방법.png"
+PACKAGE_DIR="$OUTPUT_DIR/$APP_NAME Package"
 
-mkdir -p "$ROOT_DIR/dist"
-
-echo "Building release binary..."
+echo "Building $BUILD_MODE package, version $APP_VERSION (build $BUILD_NUMBER)..."
 swift build -c release --package-path "$ROOT_DIR"
 
 if [[ ! -f "$RELEASE_BINARY" ]]; then
@@ -32,7 +75,7 @@ echo "Assembling app bundle..."
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$INFO_PLIST_PATH" "$CONTENTS_DIR/Info.plist"
+cp "$NEXT_PLIST" "$CONTENTS_DIR/Info.plist"
 cp "$RELEASE_BINARY" "$MACOS_DIR/$EXECUTABLE_NAME"
 chmod +x "$MACOS_DIR/$EXECUTABLE_NAME"
 
@@ -62,6 +105,9 @@ fi
 
 ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ZIP_PATH"
 rm -rf "$PACKAGE_DIR"
+if [[ "$BUILD_MODE" == "release" ]]; then
+  mv "$NEXT_PLIST" "$INFO_PLIST_PATH"
+fi
 
 echo
 echo "Done."

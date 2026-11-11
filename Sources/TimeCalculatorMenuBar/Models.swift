@@ -192,6 +192,10 @@ struct DayWorkData: Codable, Identifiable {
     var lockEnd: Bool
     var lockManual: Bool
     var isConfirmed: Bool = false
+    var importedFromFlex = false
+    // Older versions automatically confirmed every imported day.
+    var flexImportUsesManualLock = true
+    var isFlexAutoLocked = false
 
     func isLocked(_ field: AutoFillType) -> Bool {
         if isConfirmed { return true }
@@ -204,7 +208,7 @@ struct DayWorkData: Codable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case day, mode, start, end, manualHours, manualMinutes, leaveType
-        case lockStart, lockEnd, lockManual, isConfirmed
+        case lockStart, lockEnd, lockManual, isConfirmed, importedFromFlex, flexImportUsesManualLock, isFlexAutoLocked
     }
 
     var id: String { day }
@@ -236,6 +240,14 @@ extension DayWorkData {
         lockEnd = try values.decodeIfPresent(Bool.self, forKey: .lockEnd) ?? false
         lockManual = try values.decodeIfPresent(Bool.self, forKey: .lockManual) ?? false
         isConfirmed = try values.decodeIfPresent(Bool.self, forKey: .isConfirmed) ?? false
+        importedFromFlex = try values.decodeIfPresent(Bool.self, forKey: .importedFromFlex) ?? false
+        isFlexAutoLocked = try values.decodeIfPresent(Bool.self, forKey: .isFlexAutoLocked) ?? false
+        if importedFromFlex && !values.contains(.isFlexAutoLocked) &&
+            (!isConfirmed || !values.contains(.flexImportUsesManualLock)) {
+            isConfirmed = true
+            isFlexAutoLocked = true
+        }
+        flexImportUsesManualLock = true
         // Hidden legacy pins must remain releasable through the day lock.
         if lockManual { isConfirmed = true; lockManual = false }
         if mode == .manual || leaveType == .annual {

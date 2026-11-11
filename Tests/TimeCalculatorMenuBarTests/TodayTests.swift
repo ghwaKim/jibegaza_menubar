@@ -110,4 +110,80 @@ struct TodayTests {
         vm.updateEndTime(date(20))
         #expect(vm.startTime == date(10, 30))
     }
+
+    @Test func flexClockInPreservesGoalAndTracksManualEdits() {
+        let vm = model(now: date(12))
+        vm.updateTodayTargetSelection(.eightHours)
+        vm.syncFlexClockIn(date(9, 20), now: date(12))
+        #expect(vm.startTime == date(9, 20))
+        #expect(vm.endTime == date(18, 20))
+        #expect(vm.targetWorkMinutes == 480)
+        #expect(vm.isStartTimeFromFlex)
+        vm.updateTodayTargetSelection(.sevenHours)
+        #expect(vm.startTime == date(9, 20))
+        #expect(vm.endTime == date(17, 20))
+        vm.updateStartTime(date(10))
+        #expect(!vm.isStartTimeFromFlex)
+        vm.syncFlexClockIn(date(9, 20), now: date(12))
+        #expect(vm.startTime == date(9, 20))
+        #expect(vm.targetWorkMinutes == 420)
+        #expect(vm.isStartTimeFromFlex)
+        vm.updateTodayTargetSelection(.manual)
+        vm.updateTodayManualTargetHours("6")
+        vm.updateTodayManualTargetMinutes("30")
+        #expect(vm.startTime == date(9, 20))
+        #expect(vm.endTime == date(16, 50))
+        #expect(vm.targetWorkMinutes == 390)
+    }
+
+    @Test func flexClockInPersistsAndRejectsOtherDates() {
+        let defaults = UserDefaults(suiteName: "TodayTests.flex.\(UUID())")!
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(12))
+        vm.syncFlexClockIn(date(9, 20), now: date(12))
+        let reloaded = TimeCalculatorViewModel(defaults: defaults, now: date(12))
+        #expect(reloaded.isStartTimeFromFlex)
+        #expect(reloaded.startTime == date(9, 20))
+        reloaded.syncFlexClockIn(date(13), now: date(12))
+        #expect(reloaded.startTime == date(9, 20))
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: date(12))!
+        let nextDay = TimeCalculatorViewModel(defaults: defaults, now: tomorrow)
+        #expect(!nextDay.isStartTimeFromFlex)
+        #expect(nextDay.isStartTimeUnset)
+        nextDay.syncFlexClockIn(date(9, 20), now: tomorrow)
+        #expect(nextDay.isStartTimeUnset)
+        vm.resetTodayState()
+        #expect(!vm.isStartTimeFromFlex)
+    }
+
+
+    @Test func flexClockInActivatesMenuBarAfterResetWithoutReselectingSetting() {
+        let vm = model(now: date(12))
+        vm.resetTodayState()
+        #expect(vm.menuBarDisplayMode == nil)
+        #expect(vm.menuBarMetricBinding.wrappedValue == .untilDeparture)
+        vm.syncFlexClockIn(date(9, 20), now: date(12))
+        #expect(vm.menuBarDisplayMode?.metric == .untilDeparture)
+        #expect(vm.menuBarTitle == "6h 20m")
+    }
+
+    @Test func flexClockInRetainsMenuBarChoiceAcrossDaysAndRestarts() {
+        for metric in MenuBarMetric.allCases {
+            let defaults = UserDefaults(suiteName: "TodayTests.menuBar.\(UUID())")!
+            let vm = TimeCalculatorViewModel(defaults: defaults, now: date(12))
+            vm.menuBarMetricBinding.wrappedValue = metric
+            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: date(12))!
+            let nextStart = Calendar.current.date(byAdding: .day, value: 1, to: date(9, 20))!
+            vm.syncFlexClockIn(nextStart, now: tomorrow)
+            #expect(vm.menuBarDisplayMode?.metric == metric)
+            let reloaded = TimeCalculatorViewModel(defaults: defaults, now: tomorrow)
+            #expect(reloaded.menuBarDisplayMode?.metric == metric)
+            if metric == .untilDeparture {
+                #expect(reloaded.menuBarTitle == "6h 20m")
+            }
+            let followingDay = Calendar.current.date(byAdding: .day, value: 1, to: tomorrow)!
+            let reopened = TimeCalculatorViewModel(defaults: defaults, now: followingDay)
+            #expect(reopened.menuBarDisplayMode?.metric == metric)
+        }
+    }
+
 }

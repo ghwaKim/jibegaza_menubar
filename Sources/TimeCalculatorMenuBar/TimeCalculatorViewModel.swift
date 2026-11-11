@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class TimeCalculatorViewModel: ObservableObject {
     @Published var selectedTab: WorkTab = .today
+    @Published private(set) var isStartTimeFromFlex: Bool
     @Published private(set) var startTime: Date
     @Published private(set) var endTime: Date
     @Published private(set) var targetWorkMinutes: Int
@@ -32,6 +33,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     private enum Keys {
         static let startTime = "startTime"
+        static let isStartTimeFromFlex = "isStartTimeFromFlex"
         static let endTime = "endTime"
         static let targetWorkMinutes = "targetWorkMinutes"
         static let baseTargetWorkMinutes = "baseTargetWorkMinutes"
@@ -75,6 +77,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         targetWorkMinutes = initialBaseTargetWorkMinutes
         baseTargetWorkMinutes = initialBaseTargetWorkMinutes
         startTime = initialStartTime
+        isStartTimeFromFlex = defaults.bool(forKey: Keys.isStartTimeFromFlex)
         endTime = initialEndTime
         menuBarDisplayMode = Self.loadMenuBarDisplayMode(from: defaults)
         isStartTimeUnset = defaults.object(forKey: Keys.isStartTimeUnset) as? Bool ?? false
@@ -311,7 +314,29 @@ final class TimeCalculatorViewModel: ObservableObject {
         return selection(for: baseTargetWorkMinutes)
     }
 
+    func syncFlexClockIn(_ date: Date, now: Date = Date()) {
+        guard calendar.isDate(date, inSameDayAs: now), date <= now else { return }
+        currentTime = now
+        handleDayChangeIfNeeded(for: now)
+        startTime = constrainedStart(date)
+        isStartTimeUnset = false
+        isEndTimeUnset = false
+        isStartTimeFromFlex = true
+        lastEditedField = .startTime
+        alignTimesUsingLastEditedField()
+        if menuBarDisplayMode == nil {
+            setMenuBarDisplayMode(MenuBarDisplayMode(metric: .untilDeparture))
+        }
+        persistTodayState()
+    }
+
+    func clearFlexClockInSource() {
+        isStartTimeFromFlex = false
+        persistTodayState()
+    }
+
     func updateStartTime(_ newValue: Date) {
+        if constrainedStart(newValue) != startTime { isStartTimeFromFlex = false }
         lastEditedField = .startTime
         isStartTimeUnset = false
         isEndTimeUnset = false
@@ -325,6 +350,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func updateEndTime(_ newValue: Date) {
+        let previousStart = startTime
         lastEditedField = .endTime
         isStartTimeUnset = false
         isEndTimeUnset = false
@@ -334,6 +360,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         } else {
             alignTimesUsingLastEditedField()
         }
+        if startTime != previousStart { isStartTimeFromFlex = false }
         persistTodayState()
     }
 
@@ -381,6 +408,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func resetTodayState() {
         let now = currentTime
+        isStartTimeFromFlex = false
         baseTargetWorkMinutes = 8 * 60
         let defaultStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: now) ?? now
         startTime = defaultStart
@@ -420,6 +448,8 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func resetWeeklyState() {
+        defaults.set(flexWeekStart(for: currentTime), forKey: "flex.weekStart")
+        defaults.removeObject(forKey: "flex.accountID")
         weeklyData = defaultWeekData()
         autoFillTarget = nil
         excludedAutoFillIndexes = []
@@ -451,6 +481,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard weeklyData[idx].isConfirmed || isCompleteWeeklyDay(weeklyData[idx]) else { return }
         var data = weeklyData
         data[idx].isConfirmed.toggle()
+        data[idx].isFlexAutoLocked = false
         let preferred = autoFillTarget?.idx == idx && data[idx].isConfirmed ? nil : autoFillTarget
         let result = applyAutoFill(data: data, preferredTarget: preferred,
                                   excludedIndexes: excludedAutoFillIndexes, allowPreferredOverride: true)
@@ -525,6 +556,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard !weeklyData[idx].isLocked(field) else { return }
         var data = weeklyData
         mutation(&data[idx])
+        data[idx].importedFromFlex = false
         var excluded = excludedAutoFillIndexes.filter { $0 != idx }
         var preferred = autoFillTarget
         // Editing an automatically calculated field explicitly makes it manual.
@@ -545,6 +577,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         newData[idx].manualHours = ""
         newData[idx].manualMinutes = ""
         newData[idx].leaveType = .none
+        newData[idx].importedFromFlex = false
         newData[idx].lockStart = false
         newData[idx].lockEnd = false
         newData[idx].lockManual = false
@@ -564,6 +597,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         let neededWorkMinutes = max(0, 8 * 60 - getLeaveCreditMinutes(data))
         var newData = weeklyData
+        newData[idx].importedFromFlex = false
 
         if !data.start.isEmpty {
             newData[idx].end = minutesToTime(
@@ -624,6 +658,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func resetTodayForNewDay(referenceDate: Date) {
+        isStartTimeFromFlex = false
         trackedDayStart = calendar.startOfDay(for: referenceDate)
         let defaultStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: referenceDate) ?? referenceDate
         startTime = defaultStart
@@ -633,7 +668,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         lastEditedField = .startTime
         manualOverrideTargetMinutes = nil
         isManualTargetSelectionActive = false
-        setMenuBarDisplayMode(nil)
         defaults.set(trackedDayStart, forKey: Keys.lastActiveDayStart)
         refreshTodayTargetFromCurrentContext(syncInputFields: true)
         persistTodayState()
@@ -767,6 +801,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     private func persistTodayState() {
         defaults.set(startTime, forKey: Keys.startTime)
+        defaults.set(isStartTimeFromFlex, forKey: Keys.isStartTimeFromFlex)
         defaults.set(endTime, forKey: Keys.endTime)
         defaults.set(targetWorkMinutes, forKey: Keys.targetWorkMinutes)
         defaults.set(baseTargetWorkMinutes, forKey: Keys.baseTargetWorkMinutes)
@@ -834,6 +869,7 @@ final class TimeCalculatorViewModel: ObservableObject {
             }
         }
         mutation(&newData[idx])
+        newData[idx].importedFromFlex = false
 
         let nextExcluded = excludedAutoFillIndexes
         let preferredTarget = autoFillTarget?.idx == idx ? nil : autoFillTarget
@@ -845,6 +881,79 @@ final class TimeCalculatorViewModel: ObservableObject {
             allowPreferredOverride: shouldKeepPreferredTarget
         )
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
+    }
+
+    private func flexWeekStart(for date: Date) -> Date {
+        let today = calendar.startOfDay(for: date)
+        let offset = (calendar.component(.weekday, from: today) + 5) % 7
+        return calendar.date(byAdding: .day, value: -offset, to: today)!
+    }
+
+    func importFlexRecords(_ records: [FlexWorkRecord], now: Date = Date(), automatic: Bool = false) -> String {
+        let week = flexWeekStart(for: now)
+        func hasInput(_ day: DayWorkData) -> Bool {
+            !day.start.isEmpty || !day.end.isEmpty || !day.manualHours.isEmpty ||
+            !day.manualMinutes.isEmpty || day.leaveType != .none || day.isConfirmed ||
+            day.lockStart || day.lockEnd || day.lockManual
+        }
+        let accounts = Set(records.compactMap(\.accountID))
+        guard accounts.count <= 1 else { return "서로 다른 flex 계정의 기록입니다." }
+        let occupied = weeklyData.filter(hasInput)
+        let hasExisting = !occupied.isEmpty
+        let savedWeek = defaults.object(forKey: "flex.weekStart") as? Date
+        let canStartNewWeek = automatic && (savedWeek.map { $0 < week } ?? false) &&
+            occupied.allSatisfy {
+                $0.importedFromFlex && (!$0.isConfirmed || $0.isFlexAutoLocked) &&
+                    !$0.lockStart && !$0.lockEnd && !$0.lockManual
+            } &&
+            accounts.first != nil && accounts.first == defaults.string(forKey: "flex.accountID")
+        guard !hasExisting || savedWeek == nil || savedWeek == week || canStartNewWeek else {
+            return "기존 기록의 주차를 확인해주세요. 주간 Reset 후 이번 주 기록을 가져올 수 있어요."
+        }
+        if let saved = defaults.string(forKey: "flex.accountID"),
+           let incoming = accounts.first, hasExisting, saved != incoming {
+            return "다른 flex 계정의 기록이 있습니다. 주간 Reset 후 다시 가져와주세요."
+        }
+        var data = canStartNewWeek ? defaultWeekData() : weeklyData
+        var count = 0
+        // Reject duplicate dates rather than picking an arbitrary record.
+        let grouped = Dictionary(grouping: records, by: { calendar.startOfDay(for: $0.date) })
+        for (_, values) in grouped {
+            guard values.count == 1, let record = values.first,
+                  (0...24 * 60).contains(record.minutes),
+                  let index = FlexImportScope.index(for: record.date, now: now, calendar: calendar, includeToday: automatic) else { continue }
+            let day = data[index]
+            guard !day.isConfirmed || day.isFlexAutoLocked else { continue }
+            guard !day.lockStart, !day.lockEnd, !day.lockManual,
+                  day.leaveType == .none else { continue }
+            let hours = String(record.minutes / 60)
+            let minutes = String(record.minutes % 60)
+            if day.importedFromFlex, day.mode == .manual,
+               day.manualHours == hours, day.manualMinutes == minutes,
+               day.start.isEmpty, day.end.isEmpty, day.isFlexAutoLocked { continue }
+            data[index].mode = .manual
+            data[index].start = ""
+            data[index].end = ""
+            data[index].manualHours = hours
+            data[index].manualMinutes = minutes
+            data[index].isConfirmed = true
+            data[index].isFlexAutoLocked = true
+            data[index].importedFromFlex = true
+            count += 1
+        }
+        guard count > 0 else { return "변경할 기록이 없어요. 잠금·고정·휴가가 있는 날짜는 건너뛰어요." }
+        defaults.set(week, forKey: "flex.weekStart")
+        if let account = accounts.first { defaults.set(account, forKey: "flex.accountID") }
+        let excluded = canStartNewWeek ? [] : excludedAutoFillIndexes
+        let target = (canStartNewWeek ? nil : autoFillTarget).flatMap {
+            isValidAutoFillTarget(data: data, target: $0) ? $0 : nil
+        }
+        let result = applyAutoFill(data: data, preferredTarget: target,
+                                   excludedIndexes: excluded, allowPreferredOverride: true)
+        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
+        let skipped = records.count - count
+        return skipped == 0 ? "이번 주 flex 기록 \(count)일을 반영했어요." :
+            "이번 주 flex 기록 \(count)일을 반영했어요. 변경이 없거나 잠금·고정·휴가 등이 있는 \(skipped)일은 건너뛰었어요."
     }
 
     private func commitWeeklyState(data: [DayWorkData], target: AutoFillTarget?, excludedIndexes: [Int]) {
@@ -861,7 +970,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
 
         let day = data[target.idx]
-        if day.leaveType == .annual || day.isLocked(target.type) {
+        if day.leaveType == .annual || day.importedFromFlex || day.isLocked(target.type) {
             return false
         }
 
@@ -1033,7 +1142,10 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
 
         todayTargetGuideText = resolveTodayTargetGuideText(autoSuggestionState: autoSuggestionState)
-        if !isManualTargetSelectionActive {
+        if isStartTimeFromFlex {
+            lastEditedField = .startTime
+            alignTimesUsingLastEditedField()
+        } else if !isManualTargetSelectionActive {
             alignTimesUsingLastEditedField()
         } else {
             startTime = constrainedStart(startTime)
