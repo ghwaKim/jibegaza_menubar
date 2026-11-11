@@ -95,7 +95,7 @@ struct FlexTests {
         #expect(FlexImportScope.index(for: date(7), now: date(9), calendar: calendar) == nil)
     }
 
-    @Test func importProtectsInputsAndRejectsWrongWeek() {
+    @Test func importRefreshesFlexValuesAndRejectsWrongWeek() {
         let defaults = UserDefaults(suiteName: "FlexTests.\(UUID())")!
         let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6))
         let monday = calendar.startOfDay(for: date(2))
@@ -103,10 +103,11 @@ struct FlexTests {
         #expect(vm.weeklyData[0].manualHours == "8")
         #expect(vm.weeklyData[0].manualMinutes == "15")
         #expect(vm.weeklyData[0].isConfirmed)
+        #expect(vm.weeklyData[0].isFlexAutoLocked)
         _ = vm.importFlexRecords([FlexWorkRecord(date: monday, minutes: 300)], now: date(6))
-        #expect(vm.weeklyData[0].manualMinutes == "15")
+        #expect(vm.weeklyData[0].manualHours == "5")
         _ = vm.importFlexRecords([FlexWorkRecord(date: date(9), minutes: 480)], now: date(10))
-        #expect(vm.weeklyData[0].manualMinutes == "15")
+        #expect(vm.weeklyData[0].manualHours == "5")
     }
 
     @Test func clockStatusOnlyReturnsConfirmedEndedWork() throws {
@@ -149,9 +150,85 @@ struct FlexTests {
         _ = vm.importFlexRecords([nextMonday], now: date(9), automatic: true)
         #expect(vm.weeklyData[0].manualMinutes == "30")
         vm.toggleWeeklyConfirmation(idx: 0)
+        vm.toggleWeeklyConfirmation(idx: 0)
         _ = vm.importFlexRecords([FlexWorkRecord(date: date(16), minutes: 420, accountID: "me")],
                                  now: date(16), automatic: true)
         #expect(vm.weeklyData[0].manualMinutes == "30")
+    }
+
+
+    @Test func completedFlexWorkReplacesManualPlansButKeepsFutureAndLocks() {
+        let defaults = UserDefaults(suiteName: "FlexTests.plans.\(UUID())")!
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6))
+        vm.updateWeeklyManualHours(idx: 0, value: "8")
+        vm.updateWeeklyManualHours(idx: 1, value: "8")
+        vm.toggleWeeklyConfirmation(idx: 1)
+        vm.toggleWeeklyMode(idx: 2)
+        vm.updateWeeklyStart(idx: 2, value: "09:00")
+        vm.toggleWeeklyLock(idx: 2, field: .start)
+        vm.updateWeeklyManualHours(idx: 3, value: "8")
+        vm.updateWeeklyManualHours(idx: 4, value: "8")
+
+        let records = (2...6).map { FlexWorkRecord(date: date($0), minutes: 450, accountID: "me") }
+        _ = vm.importFlexRecords(records, now: date(6))
+
+        #expect(vm.weeklyData[0].manualHours == "7")
+        #expect(vm.weeklyData[0].manualMinutes == "30")
+        #expect(vm.weeklyData[0].importedFromFlex)
+        #expect(vm.weeklyData[0].isConfirmed)
+        #expect(vm.weeklyData[0].isFlexAutoLocked)
+        #expect(vm.weeklyData[1].manualHours == "8")
+        #expect(vm.weeklyData[1].isConfirmed)
+        #expect(vm.weeklyData[2].start == "09:00")
+        #expect(vm.weeklyData[2].lockStart)
+        #expect(!vm.weeklyData[2].importedFromFlex)
+        #expect(vm.weeklyData[3].manualMinutes == "30")
+        #expect(vm.weeklyData[4].manualHours == "8")
+        #expect(!vm.weeklyData[4].importedFromFlex)
+
+        vm.toggleWeeklyConfirmation(idx: 0)
+        vm.toggleWeeklyConfirmation(idx: 0)
+        #expect(!vm.weeklyData[0].isFlexAutoLocked)
+        _ = vm.importFlexRecords([FlexWorkRecord(date: date(2), minutes: 420, accountID: "me")], now: date(6))
+        #expect(vm.weeklyData[0].manualMinutes == "30")
+        vm.toggleWeeklyConfirmation(idx: 0)
+        _ = vm.importFlexRecords([FlexWorkRecord(date: date(2), minutes: 420, accountID: "me")], now: date(6))
+        #expect(vm.weeklyData[0].manualMinutes == "0")
+    }
+
+    @Test func flexActualRecalculatesRemainingPlanAndReleasesCalculatedTarget() {
+        let defaults = UserDefaults(suiteName: "FlexTests.target.\(UUID())")!
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6))
+        for index in 0..<4 { vm.updateWeeklyManualHours(idx: index, value: "8") }
+        #expect(vm.isWeeklyAutoCalculated(at: 4))
+        _ = vm.importFlexRecords([FlexWorkRecord(date: date(2), minutes: 450)], now: date(6))
+        #expect(vm.weeklyData[4].manualHours == "8")
+        #expect(vm.weeklyData[4].manualMinutes == "30")
+        _ = vm.importFlexRecords([FlexWorkRecord(date: date(6), minutes: 420)], now: date(6), automatic: true)
+        #expect(!vm.isWeeklyAutoCalculated(at: 4))
+        #expect(vm.weeklyData[4].manualHours == "7")
+        vm.updateWeeklyManualHours(idx: 1, value: "7")
+        #expect(vm.weeklyData[4].manualHours == "7")
+    }
+
+    @Test func legacyFlexAutoLockMigratesAndNewUserLockPersists() throws {
+        var day = defaultWeekData()[0]
+        day.manualHours = "8"
+        day.importedFromFlex = true
+        day.isConfirmed = true
+        let encoded = try JSONEncoder().encode(day)
+        var legacy = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacy.removeValue(forKey: "flexImportUsesManualLock")
+        legacy.removeValue(forKey: "isFlexAutoLocked")
+        let migrated = try JSONDecoder().decode(DayWorkData.self,
+            from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(migrated.isConfirmed)
+        #expect(migrated.isFlexAutoLocked)
+        #expect(migrated.importedFromFlex)
+        let current = try JSONDecoder().decode(DayWorkData.self, from: encoded)
+        #expect(current.isConfirmed)
+        #expect(!current.isFlexAutoLocked)
+        #expect(current.importedFromFlex)
     }
 
 }

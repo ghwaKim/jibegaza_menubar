@@ -453,7 +453,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard weeklyData[idx].isConfirmed || isCompleteWeeklyDay(weeklyData[idx]) else { return }
         var data = weeklyData
         data[idx].isConfirmed.toggle()
-        if !data[idx].isConfirmed { data[idx].importedFromFlex = false }
+        data[idx].isFlexAutoLocked = false
         let preferred = autoFillTarget?.idx == idx && data[idx].isConfirmed ? nil : autoFillTarget
         let result = applyAutoFill(data: data, preferredTarget: preferred,
                                   excludedIndexes: excludedAutoFillIndexes, allowPreferredOverride: true)
@@ -528,6 +528,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard !weeklyData[idx].isLocked(field) else { return }
         var data = weeklyData
         mutation(&data[idx])
+        data[idx].importedFromFlex = false
         var excluded = excludedAutoFillIndexes.filter { $0 != idx }
         var preferred = autoFillTarget
         // Editing an automatically calculated field explicitly makes it manual.
@@ -548,6 +549,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         newData[idx].manualHours = ""
         newData[idx].manualMinutes = ""
         newData[idx].leaveType = .none
+        newData[idx].importedFromFlex = false
         newData[idx].lockStart = false
         newData[idx].lockEnd = false
         newData[idx].lockManual = false
@@ -567,6 +569,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         let neededWorkMinutes = max(0, 8 * 60 - getLeaveCreditMinutes(data))
         var newData = weeklyData
+        newData[idx].importedFromFlex = false
 
         if !data.start.isEmpty {
             newData[idx].end = minutesToTime(
@@ -837,6 +840,7 @@ final class TimeCalculatorViewModel: ObservableObject {
             }
         }
         mutation(&newData[idx])
+        newData[idx].importedFromFlex = false
 
         let nextExcluded = excludedAutoFillIndexes
         let preferredTarget = autoFillTarget?.idx == idx ? nil : autoFillTarget
@@ -869,9 +873,12 @@ final class TimeCalculatorViewModel: ObservableObject {
         let hasExisting = !occupied.isEmpty
         let savedWeek = defaults.object(forKey: "flex.weekStart") as? Date
         let canStartNewWeek = automatic && (savedWeek.map { $0 < week } ?? false) &&
-            occupied.allSatisfy(\.importedFromFlex) &&
+            occupied.allSatisfy {
+                $0.importedFromFlex && (!$0.isConfirmed || $0.isFlexAutoLocked) &&
+                    !$0.lockStart && !$0.lockEnd && !$0.lockManual
+            } &&
             accounts.first != nil && accounts.first == defaults.string(forKey: "flex.accountID")
-        guard !hasExisting || savedWeek == week || canStartNewWeek else {
+        guard !hasExisting || savedWeek == nil || savedWeek == week || canStartNewWeek else {
             return "기존 기록의 주차를 확인해주세요. 주간 Reset 후 이번 주 기록을 가져올 수 있어요."
         }
         if let saved = defaults.string(forKey: "flex.accountID"),
@@ -887,24 +894,37 @@ final class TimeCalculatorViewModel: ObservableObject {
                   (0...24 * 60).contains(record.minutes),
                   let index = FlexImportScope.index(for: record.date, now: now, calendar: calendar, includeToday: automatic) else { continue }
             let day = data[index]
-            guard !day.isConfirmed, !day.lockStart, !day.lockEnd, !day.lockManual,
-                  day.leaveType == .none, day.start.isEmpty, day.end.isEmpty,
-                  day.manualHours.isEmpty, day.manualMinutes.isEmpty else { continue }
+            guard !day.isConfirmed || day.isFlexAutoLocked else { continue }
+            guard !day.lockStart, !day.lockEnd, !day.lockManual,
+                  day.leaveType == .none else { continue }
+            let hours = String(record.minutes / 60)
+            let minutes = String(record.minutes % 60)
+            if day.importedFromFlex, day.mode == .manual,
+               day.manualHours == hours, day.manualMinutes == minutes,
+               day.start.isEmpty, day.end.isEmpty, day.isFlexAutoLocked { continue }
             data[index].mode = .manual
-            data[index].manualHours = String(record.minutes / 60)
-            data[index].manualMinutes = String(record.minutes % 60)
+            data[index].start = ""
+            data[index].end = ""
+            data[index].manualHours = hours
+            data[index].manualMinutes = minutes
             data[index].isConfirmed = true
+            data[index].isFlexAutoLocked = true
             data[index].importedFromFlex = true
             count += 1
         }
-        guard count > 0 else { return "반영할 빈 요일이 없습니다. 기존 입력과 잠긴 기록은 유지했습니다." }
+        guard count > 0 else { return "변경할 기록이 없어요. 잠금·고정·휴가가 있는 날짜는 건너뛰어요." }
         defaults.set(week, forKey: "flex.weekStart")
         if let account = accounts.first { defaults.set(account, forKey: "flex.accountID") }
-        let target = (canStartNewWeek ? nil : autoFillTarget).flatMap { isValidAutoFillTarget(data: data, target: $0) ? $0 : nil }
-        commitWeeklyState(data: data, target: target, excludedIndexes: canStartNewWeek ? [] : excludedAutoFillIndexes)
+        let excluded = canStartNewWeek ? [] : excludedAutoFillIndexes
+        let target = (canStartNewWeek ? nil : autoFillTarget).flatMap {
+            isValidAutoFillTarget(data: data, target: $0) ? $0 : nil
+        }
+        let result = applyAutoFill(data: data, preferredTarget: target,
+                                   excludedIndexes: excluded, allowPreferredOverride: true)
+        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
         let skipped = records.count - count
         return skipped == 0 ? "이번 주 flex 기록 \(count)일을 반영했어요." :
-            "이번 주 flex 기록 \(count)일을 반영했어요. 이미 기록이 있는 날짜 등 \(skipped)일은 건너뛰었어요."
+            "이번 주 flex 기록 \(count)일을 반영했어요. 변경이 없거나 잠금·고정·휴가 등이 있는 \(skipped)일은 건너뛰었어요."
     }
 
     private func commitWeeklyState(data: [DayWorkData], target: AutoFillTarget?, excludedIndexes: [Int]) {
@@ -921,7 +941,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
 
         let day = data[target.idx]
-        if day.leaveType == .annual || day.isLocked(target.type) {
+        if day.leaveType == .annual || day.importedFromFlex || day.isLocked(target.type) {
             return false
         }
 
