@@ -143,6 +143,9 @@ private var appVersionText: String {
                     Text(lastSync, style: .time)
                 }
             }
+            if let title = flex.loginResultTitle {
+                Text(title).fontWeight(.semibold).foregroundStyle(.primary)
+            }
             Text(flex.message).fixedSize(horizontal: false, vertical: true)
             DisclosureGroup("상세 정보") {
                 Text(flex.diagnostic).textSelection(.enabled)

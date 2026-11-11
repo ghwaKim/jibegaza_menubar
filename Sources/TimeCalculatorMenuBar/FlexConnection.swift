@@ -9,7 +9,8 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
     @Published var isReading = false
     let webView: WKWebView
     private var window: NSWindow?
-    private var resultWindow: NSWindow?
+    @Published private(set) var loginResultTitle: String?
+    private var onLoginFinished: (() -> Void)?
     private weak var viewModel: TimeCalculatorViewModel?
     private var generation = 0
     private let client = FlexSessionClient()
@@ -41,8 +42,9 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
     private var attemptedRefresh = false
     private let observedShiftKey = "flex.observedShift"
 
-    func start(viewModel: TimeCalculatorViewModel) {
+    func start(viewModel: TimeCalculatorViewModel, onLoginFinished: @escaping () -> Void) {
         self.viewModel = viewModel
+        self.onLoginFinished = onLoginFinished
         guard pollTask == nil else { return }
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -82,7 +84,7 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         generation += 1
         refreshTask?.cancel()
         attemptedRefresh = false
-        resultWindow?.orderOut(nil)
+        loginResultTitle = nil
         message = "flex에 로그인하고 회사 선택을 완료해주세요."
         if window == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 690),
@@ -106,6 +108,7 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         guard !isReading else { retryAfterReading = true; return }
         let generation = self.generation
         isReading = true
+        loginResultTitle = nil
         message = "로그인 세션으로 이번 주 기록을 조회하고 있습니다."
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -275,34 +278,9 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
 
     private func finishLogin(title: String) {
         guard window?.isVisible == true else { return }
-        let result = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 190),
-                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        result.title = "Jibegaza"
-        result.isReleasedWhenClosed = false
-        result.contentView = NSHostingView(rootView: FlexResultView(
-            title: title, message: message, autoSync: autoSync,
-            showWeeklyRecords: { [weak self] in self?.showWeeklyRecords() },
-            close: { [weak result] in result?.close() }
-        ))
-        resultWindow = result
+        loginResultTitle = title
         window?.orderOut(nil)
-        result.center()
-        NSApp.activate(ignoringOtherApps: true)
-        result.makeKeyAndOrderFront(nil)
-    }
-
-    private func showWeeklyRecords() {
-        guard let viewModel, let resultWindow else { return }
-        viewModel.selectedTab = .week
-        resultWindow.title = "주간 시간 계산"
-        resultWindow.contentView = NSHostingView(rootView: ScrollView {
-            ContentView()
-                .environmentObject(viewModel)
-                .frame(width: 470)
-        })
-        let height = min(700, (resultWindow.screen?.visibleFrame.height ?? 760) - 60)
-        resultWindow.setContentSize(NSSize(width: 470, height: height))
-        resultWindow.center()
+        onLoginFinished?()
     }
 
     func disconnect() {
@@ -315,7 +293,7 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         setConnected(false)
         autoSync = false
         lastSync = nil
-        resultWindow?.orderOut(nil)
+        loginResultTitle = nil
         UserDefaults.standard.removeObject(forKey: observedShiftKey)
         lastObservedAID = nil
         isDisconnecting = true
@@ -346,35 +324,6 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
             webView.load(navigationAction.request)
         }
         return nil
-    }
-}
-
-private struct FlexResultView: View {
-    let title: String
-    let message: String
-    let autoSync: Bool
-    let showWeeklyRecords: () -> Void
-    let close: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.title3.weight(.semibold))
-            Text(message).fixedSize(horizontal: false, vertical: true)
-            Label(autoSync ? "자동 동기화 켜짐" : "자동 동기화 꺼짐",
-                  systemImage: autoSync ? "arrow.clockwise" : "pause.circle")
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-            HStack {
-                Spacer()
-                Button("닫기", action: close).keyboardShortcut(.cancelAction)
-                Button("주간 기록 보기", action: showWeeklyRecords)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 400)
-        .frame(minHeight: 180)
     }
 }
 
