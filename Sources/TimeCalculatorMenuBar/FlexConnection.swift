@@ -5,11 +5,12 @@ import WebKit
 @MainActor
 final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver, NSWindowDelegate {
     static let shared = FlexConnection()
-    @Published var records: [FlexWorkRecord] = []
     @Published var message = "flex에 로그인해주세요. 로그인 세션으로 이번 주 기록을 조회합니다."
     @Published var isReading = false
     let webView: WKWebView
     private var window: NSWindow?
+    private var resultWindow: NSWindow?
+    private weak var viewModel: TimeCalculatorViewModel?
     private var generation = 0
     private let client = FlexSessionClient()
     private var lastObservedAID: String?
@@ -24,19 +25,24 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
     @Published var autoSync = UserDefaults.standard.bool(forKey: "flex.autoSync") {
         didSet {
             UserDefaults.standard.set(autoSync, forKey: "flex.autoSync")
-            if autoSync, connected { readRecords() }
+            if autoSync, connected {
+                readRecords()
+            } else if !autoSync, connected, window?.isVisible != true {
+                generation += 1
+                retryAfterReading = false
+                attemptedRefresh = false
+                refreshTask?.cancel()
+                message = "자동 동기화를 껐어요."
+            }
         }
     }
-    private var onImport: (([FlexWorkRecord], Bool) -> String)?
     private var pollTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var attemptedRefresh = false
     private let observedShiftKey = "flex.observedShift"
 
     func start(viewModel: TimeCalculatorViewModel) {
-        onImport = { [weak viewModel] records, automatic in
-            viewModel?.importFlexRecords(records, automatic: automatic) ?? ""
-        }
+        self.viewModel = viewModel
         guard pollTask == nil else { return }
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -69,10 +75,15 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
     }
 
     func open() {
+        if window?.isVisible == true {
+            window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        generation += 1
+        refreshTask?.cancel()
         attemptedRefresh = false
-        needsLogin = false
+        resultWindow?.orderOut(nil)
         message = "flex에 로그인하고 회사 선택을 완료해주세요."
-        records = []
         if window == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 690),
                                   styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -95,7 +106,6 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         guard !isReading else { retryAfterReading = true; return }
         let generation = self.generation
         isReading = true
-        records = []
         message = "로그인 세션으로 이번 주 기록을 조회하고 있습니다."
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -107,6 +117,7 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
                 }
             }
             var stage = "세션 확인"
+            var verifiedLogin = false
             self.diagnostic = stage
             let cookies = await self.webView.configuration.websiteDataStore.httpCookieStore.allCookies()
             guard generation == self.generation else { return }
@@ -122,10 +133,12 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
                     throw FlexAPI.Failure.identityMismatch
                 }
                 guard generation == self.generation else { return }
+                verifiedLogin = true
                 let now = Date()
+                let willAutoSync = self.autoSync || (!self.connected && self.window?.isVisible == true)
                 var completedToday: FlexWorkRecord?
                 var clockStatusFailed = false
-                if self.autoSync {
+                if willAutoSync {
                     do {
                         completedToday = try await self.readCompletedShift(userID: userID, cookies: cookies, now: now, generation: generation)
                     } catch {
@@ -141,24 +154,15 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
                 let report = try FlexAPI.report(from: data, userID: userID, now: now)
                 let records = report.records + (completedToday.map { [$0] } ?? [])
                 guard generation == self.generation else { return }
-                self.setConnected(true)
-                self.needsLogin = false
-                self.attemptedRefresh = false
-                self.refreshTask?.cancel()
+                self.completeConnection()
                 self.lastSync = Date()
-                self.window?.orderOut(nil)
-                if self.autoSync {
-                    self.message = records.isEmpty ? "새로 반영할 flex 기록이 없어요." :
-                        (self.onImport?(records, true) ?? "")
-                    self.records = []
-                } else {
-                    self.records = records
-                    self.message = records.isEmpty ? "가져올 이전 근무기록이 없어요." : "가져올 근무기록을 확인해주세요."
-                }
+                self.message = records.isEmpty ? "이번 주에 가져올 근무기록이 없어요." :
+                    (self.viewModel?.importFlexRecords(records, now: now, automatic: true)
+                        ?? "주간 기록에 반영할 수 없어요.")
                 self.diagnostic = clockStatusFailed ? "오늘 근무 상태 확인 실패\n" + report.diagnostic : report.diagnostic
+                self.finishLogin(title: "flex 연결 완료")
             } catch {
                 guard generation == self.generation else { return }
-                self.records = []
                 let expired: Bool
                 switch error {
                 case FlexSessionClient.Failure.missingSession, FlexSessionClient.Failure.status(401): expired = true
@@ -199,6 +203,11 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
                 }
                 if !(error is DecodingError) { self.diagnostic = "\(stage) · \(reason)" }
                 self.message = reason
+                if verifiedLogin, !expired, self.window?.isVisible == true {
+                    self.completeConnection()
+                    self.message = "flex에 연결했지만 이번 주 근무기록을 가져오지 못했어요."
+                    self.finishLogin(title: "근무기록 조회 실패")
+                }
             }
         }
     }
@@ -214,7 +223,6 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
             guard !Task.isCancelled, aid != self.lastObservedAID else { return }
             self.lastObservedAID = aid
             self.generation += 1
-            self.records = []
             if aid != nil, self.window?.isVisible == true || (self.connected && self.attemptedRefresh) {
                 self.readRecords()
             }
@@ -225,7 +233,7 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
                                     generation: Int) async throws -> FlexWorkRecord? {
         let path = "/api/v2/time-tracking/work-clock/users/\(userID)/current-status"
         let data = try await client.get(path: path, cookies: cookies, deviceID: deviceID)
-        guard generation == self.generation, autoSync else { return nil }
+        guard generation == self.generation else { return nil }
         let status = try JSONDecoder().decode(FlexAPI.ClockStatus.self, from: data)
         let observed = [userID, status.targetDate]
         if status.isWorking {
@@ -255,9 +263,46 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         webView.stopLoading()
     }
 
-    func apply() {
-        message = onImport?(records, false) ?? "주간 계산을 다시 열어주세요."
-        records = []
+    private func completeConnection() {
+        // On reauthentication, respect the preference already selected for this connection.
+        if !connected { autoSync = true }
+        setConnected(true)
+        needsLogin = false
+        attemptedRefresh = false
+        refreshTask?.cancel()
+        retryAfterReading = false
+    }
+
+    private func finishLogin(title: String) {
+        guard window?.isVisible == true else { return }
+        let result = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 190),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        result.title = "Jibegaza"
+        result.isReleasedWhenClosed = false
+        result.contentView = NSHostingView(rootView: FlexResultView(
+            title: title, message: message, autoSync: autoSync,
+            showWeeklyRecords: { [weak self] in self?.showWeeklyRecords() },
+            close: { [weak result] in result?.close() }
+        ))
+        resultWindow = result
+        window?.orderOut(nil)
+        result.center()
+        NSApp.activate(ignoringOtherApps: true)
+        result.makeKeyAndOrderFront(nil)
+    }
+
+    private func showWeeklyRecords() {
+        guard let viewModel, let resultWindow else { return }
+        viewModel.selectedTab = .week
+        resultWindow.title = "주간 시간 계산"
+        resultWindow.contentView = NSHostingView(rootView: ScrollView {
+            ContentView()
+                .environmentObject(viewModel)
+                .frame(width: 470)
+        })
+        let height = min(700, (resultWindow.screen?.visibleFrame.height ?? 760) - 60)
+        resultWindow.setContentSize(NSSize(width: 470, height: height))
+        resultWindow.center()
     }
 
     func disconnect() {
@@ -270,10 +315,10 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         setConnected(false)
         autoSync = false
         lastSync = nil
+        resultWindow?.orderOut(nil)
         UserDefaults.standard.removeObject(forKey: observedShiftKey)
         lastObservedAID = nil
         isDisconnecting = true
-        records = []
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
         let store = webView.configuration.websiteDataStore
@@ -301,6 +346,35 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
             webView.load(navigationAction.request)
         }
         return nil
+    }
+}
+
+private struct FlexResultView: View {
+    let title: String
+    let message: String
+    let autoSync: Bool
+    let showWeeklyRecords: () -> Void
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.title3.weight(.semibold))
+            Text(message).fixedSize(horizontal: false, vertical: true)
+            Label(autoSync ? "자동 동기화 켜짐" : "자동 동기화 꺼짐",
+                  systemImage: autoSync ? "arrow.clockwise" : "pause.circle")
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            HStack {
+                Spacer()
+                Button("닫기", action: close).keyboardShortcut(.cancelAction)
+                Button("주간 기록 보기", action: showWeeklyRecords)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+        .frame(minHeight: 180)
     }
 }
 

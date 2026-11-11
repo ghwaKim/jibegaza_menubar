@@ -902,7 +902,9 @@ final class TimeCalculatorViewModel: ObservableObject {
         if let account = accounts.first { defaults.set(account, forKey: "flex.accountID") }
         let target = (canStartNewWeek ? nil : autoFillTarget).flatMap { isValidAutoFillTarget(data: data, target: $0) ? $0 : nil }
         commitWeeklyState(data: data, target: target, excludedIndexes: canStartNewWeek ? [] : excludedAutoFillIndexes)
-        return "flex 기록 \(count)일을 반영하고 잠갔습니다. 수정하려면 주간 카드의 잠금을 해제해주세요."
+        let skipped = records.count - count
+        return skipped == 0 ? "이번 주 flex 기록 \(count)일을 반영했어요." :
+            "이번 주 flex 기록 \(count)일을 반영했어요. 이미 기록이 있는 날짜 등 \(skipped)일은 건너뛰었어요."
     }
 
     private func commitWeeklyState(data: [DayWorkData], target: AutoFillTarget?, excludedIndexes: [Int]) {

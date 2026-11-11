@@ -112,6 +112,10 @@ private var appVersionText: String {
             }
             if flex.connected || flex.lastSync != nil {
                 flexSyncSummary
+            } else {
+                Text("연결하면 이번 주 근무기록을 가져오고 이후 자동으로 동기화합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             HStack {
                 weekSummaryCard(title: "주간 합계", value: viewModel.weekTotalText)
@@ -140,15 +144,6 @@ private var appVersionText: String {
                 }
             }
             Text(flex.message).fixedSize(horizontal: false, vertical: true)
-            if !flex.records.isEmpty {
-                Text(flex.records.map {
-                    "\($0.date.formatted(.dateTime.month().day())) \(formatMinutesToKorean($0.minutes))"
-                }.joined(separator: " · "))
-                Button("주간 기록에 반영") { flex.apply() }
-            }
-            if flex.connected && !flex.autoSync && !flex.needsLogin {
-                Button("자동 동기화 켜기") { flex.autoSync = true }
-            }
             DisclosureGroup("상세 정보") {
                 Text(flex.diagnostic).textSelection(.enabled)
             }
