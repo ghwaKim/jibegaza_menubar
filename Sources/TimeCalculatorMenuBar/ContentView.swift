@@ -591,6 +591,9 @@ private var appVersionText: String {
     private func timePickerRow(title: String, selection: Binding<Date>) -> some View {
         HStack {
             Text(title)
+            if title == "출근 시간", viewModel.isStartTimeFromFlex {
+                Text("flex").font(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
             if let placeholder = placeholderText(for: title) {
                 Button(placeholder) {

@@ -231,4 +231,27 @@ struct FlexTests {
         #expect(current.importedFromFlex)
     }
 
+
+    @Test func clockStatusExposesOnlyValidSameDayClockIn() throws {
+        let now = date(2)
+        let start = calendar.date(bySettingHour: 9, minute: 20, second: 0, of: now)!
+        func status(_ timestamp: Double, targetDate: String = "2026-11-02") throws -> FlexAPI.ClockStatus {
+            let payload: [String: Any] = [
+                "targetDate": targetDate,
+                "onGoingRecordPack": ["startRecord": ["targetTime": timestamp]]
+            ]
+            return try JSONDecoder().decode(FlexAPI.ClockStatus.self,
+                from: JSONSerialization.data(withJSONObject: payload))
+        }
+        let active = try status(start.timeIntervalSince1970 * 1000)
+        #expect(active.clockInDate(now: now, calendar: calendar) == start)
+        #expect(active.completedRecord(userID: "me", now: now, calendar: calendar) == nil)
+        let previous = try status(start.timeIntervalSince1970 * 1000, targetDate: "2026-11-01")
+        #expect(previous.clockInDate(now: now, calendar: calendar) == nil)
+        let future = try status(now.addingTimeInterval(3600).timeIntervalSince1970 * 1000)
+        #expect(future.clockInDate(now: now, calendar: calendar) == nil)
+        let seconds = try status(start.timeIntervalSince1970)
+        #expect(seconds.clockInDate(now: now, calendar: calendar) == nil)
+    }
+
 }

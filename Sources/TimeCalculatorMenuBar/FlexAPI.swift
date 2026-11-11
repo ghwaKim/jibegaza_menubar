@@ -38,12 +38,18 @@ enum FlexAPI {
             let workRecords: [Record]
         }
 
+        struct Ongoing: Decodable {
+            struct StartRecord: Decodable { let targetTime: Double }
+            let startRecord: StartRecord?
+        }
+
         private enum CodingKeys: String, CodingKey {
             case targetDate, onGoingRecordPack, targetDayWorkSchedule
         }
 
         let targetDate: String
         let isWorking: Bool
+        let ongoing: Ongoing?
         let targetDayWorkSchedule: Day?
 
         init(from decoder: Decoder) throws {
@@ -54,7 +60,32 @@ enum FlexAPI {
                     .init(codingPath: decoder.codingPath, debugDescription: "Missing work status"))
             }
             isWorking = try !container.decodeNil(forKey: .onGoingRecordPack)
+            ongoing = try container.decodeIfPresent(Ongoing.self, forKey: .onGoingRecordPack)
             targetDayWorkSchedule = isWorking ? nil : try container.decodeIfPresent(Day.self, forKey: .targetDayWorkSchedule)
+        }
+
+        func clockInDate(now: Date, calendar: Calendar = .current) -> Date? {
+            let formatter = DateFormatter()
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd"
+            guard targetDate == formatter.string(from: now) else { return nil }
+
+            let timestamp: Double?
+            if isWorking {
+                timestamp = ongoing?.startRecord?.targetTime
+            } else {
+                guard targetDayWorkSchedule?.date == targetDate,
+                      completedRecord(userID: "", now: now, calendar: calendar) != nil else { return nil }
+                timestamp = targetDayWorkSchedule?.workRecords
+                    .filter { $0.workFormType == "WORK" }
+                    .map { $0.blockTimeFrom.timeStamp }.min()
+            }
+            guard let timestamp, timestamp.isFinite else { return nil }
+            let date = Date(timeIntervalSince1970: timestamp / 1000)
+            guard calendar.isDate(date, inSameDayAs: now), date <= now else { return nil }
+            return date
         }
 
         func completedRecord(userID: String, now: Date, calendar: Calendar = .current) -> FlexWorkRecord? {

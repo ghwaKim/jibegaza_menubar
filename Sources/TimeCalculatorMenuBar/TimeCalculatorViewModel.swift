@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class TimeCalculatorViewModel: ObservableObject {
     @Published var selectedTab: WorkTab = .today
+    @Published private(set) var isStartTimeFromFlex: Bool
     @Published private(set) var startTime: Date
     @Published private(set) var endTime: Date
     @Published private(set) var targetWorkMinutes: Int
@@ -32,6 +33,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     private enum Keys {
         static let startTime = "startTime"
+        static let isStartTimeFromFlex = "isStartTimeFromFlex"
         static let endTime = "endTime"
         static let targetWorkMinutes = "targetWorkMinutes"
         static let baseTargetWorkMinutes = "baseTargetWorkMinutes"
@@ -75,6 +77,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         targetWorkMinutes = initialBaseTargetWorkMinutes
         baseTargetWorkMinutes = initialBaseTargetWorkMinutes
         startTime = initialStartTime
+        isStartTimeFromFlex = defaults.bool(forKey: Keys.isStartTimeFromFlex)
         endTime = initialEndTime
         menuBarDisplayMode = Self.loadMenuBarDisplayMode(from: defaults)
         isStartTimeUnset = defaults.object(forKey: Keys.isStartTimeUnset) as? Bool ?? false
@@ -311,7 +314,26 @@ final class TimeCalculatorViewModel: ObservableObject {
         return selection(for: baseTargetWorkMinutes)
     }
 
+    func syncFlexClockIn(_ date: Date, now: Date = Date()) {
+        guard calendar.isDate(date, inSameDayAs: now), date <= now else { return }
+        currentTime = now
+        handleDayChangeIfNeeded(for: now)
+        startTime = constrainedStart(date)
+        isStartTimeUnset = false
+        isEndTimeUnset = false
+        isStartTimeFromFlex = true
+        lastEditedField = .startTime
+        alignTimesUsingLastEditedField()
+        persistTodayState()
+    }
+
+    func clearFlexClockInSource() {
+        isStartTimeFromFlex = false
+        persistTodayState()
+    }
+
     func updateStartTime(_ newValue: Date) {
+        if constrainedStart(newValue) != startTime { isStartTimeFromFlex = false }
         lastEditedField = .startTime
         isStartTimeUnset = false
         isEndTimeUnset = false
@@ -325,6 +347,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func updateEndTime(_ newValue: Date) {
+        let previousStart = startTime
         lastEditedField = .endTime
         isStartTimeUnset = false
         isEndTimeUnset = false
@@ -334,6 +357,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         } else {
             alignTimesUsingLastEditedField()
         }
+        if startTime != previousStart { isStartTimeFromFlex = false }
         persistTodayState()
     }
 
@@ -381,6 +405,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func resetTodayState() {
         let now = currentTime
+        isStartTimeFromFlex = false
         baseTargetWorkMinutes = 8 * 60
         let defaultStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: now) ?? now
         startTime = defaultStart
@@ -630,6 +655,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func resetTodayForNewDay(referenceDate: Date) {
+        isStartTimeFromFlex = false
         trackedDayStart = calendar.startOfDay(for: referenceDate)
         let defaultStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: referenceDate) ?? referenceDate
         startTime = defaultStart
@@ -773,6 +799,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     private func persistTodayState() {
         defaults.set(startTime, forKey: Keys.startTime)
+        defaults.set(isStartTimeFromFlex, forKey: Keys.isStartTimeFromFlex)
         defaults.set(endTime, forKey: Keys.endTime)
         defaults.set(targetWorkMinutes, forKey: Keys.targetWorkMinutes)
         defaults.set(baseTargetWorkMinutes, forKey: Keys.baseTargetWorkMinutes)
@@ -1113,7 +1140,10 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
 
         todayTargetGuideText = resolveTodayTargetGuideText(autoSuggestionState: autoSuggestionState)
-        if !isManualTargetSelectionActive {
+        if isStartTimeFromFlex {
+            lastEditedField = .startTime
+            alignTimesUsingLastEditedField()
+        } else if !isManualTargetSelectionActive {
             alignTimesUsingLastEditedField()
         } else {
             startTime = constrainedStart(startTime)

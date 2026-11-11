@@ -138,15 +138,12 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
                 guard generation == self.generation else { return }
                 verifiedLogin = true
                 let now = Date()
-                let willAutoSync = self.autoSync || (!self.connected && self.window?.isVisible == true)
                 var completedToday: FlexWorkRecord?
                 var clockStatusFailed = false
-                if willAutoSync {
-                    do {
-                        completedToday = try await self.readCompletedShift(userID: userID, cookies: cookies, now: now, generation: generation)
-                    } catch {
-                        clockStatusFailed = true
-                    }
+                do {
+                    completedToday = try await self.readCompletedShift(userID: userID, cookies: cookies, now: now, generation: generation)
+                } catch {
+                    clockStatusFailed = true
                 }
                 guard generation == self.generation else { return }
                 stage = "근무 조회"
@@ -238,6 +235,9 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         let data = try await client.get(path: path, cookies: cookies, deviceID: deviceID)
         guard generation == self.generation else { return nil }
         let status = try JSONDecoder().decode(FlexAPI.ClockStatus.self, from: data)
+        if let clockIn = status.clockInDate(now: now) {
+            viewModel?.syncFlexClockIn(clockIn, now: now)
+        }
         let observed = [userID, status.targetDate]
         if status.isWorking {
             UserDefaults.standard.set(observed, forKey: observedShiftKey)
@@ -291,6 +291,7 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         retryAfterReading = false
         needsLogin = false
         setConnected(false)
+        viewModel?.clearFlexClockInSource()
         autoSync = false
         lastSync = nil
         loginResultTitle = nil

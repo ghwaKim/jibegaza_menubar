@@ -110,4 +110,49 @@ struct TodayTests {
         vm.updateEndTime(date(20))
         #expect(vm.startTime == date(10, 30))
     }
+
+    @Test func flexClockInPreservesGoalAndTracksManualEdits() {
+        let vm = model(now: date(12))
+        vm.updateTodayTargetSelection(.eightHours)
+        vm.syncFlexClockIn(date(9, 20), now: date(12))
+        #expect(vm.startTime == date(9, 20))
+        #expect(vm.endTime == date(18, 20))
+        #expect(vm.targetWorkMinutes == 480)
+        #expect(vm.isStartTimeFromFlex)
+        vm.updateTodayTargetSelection(.sevenHours)
+        #expect(vm.startTime == date(9, 20))
+        #expect(vm.endTime == date(17, 20))
+        vm.updateStartTime(date(10))
+        #expect(!vm.isStartTimeFromFlex)
+        vm.syncFlexClockIn(date(9, 20), now: date(12))
+        #expect(vm.startTime == date(9, 20))
+        #expect(vm.targetWorkMinutes == 420)
+        #expect(vm.isStartTimeFromFlex)
+        vm.updateTodayTargetSelection(.manual)
+        vm.updateTodayManualTargetHours("6")
+        vm.updateTodayManualTargetMinutes("30")
+        #expect(vm.startTime == date(9, 20))
+        #expect(vm.endTime == date(16, 50))
+        #expect(vm.targetWorkMinutes == 390)
+    }
+
+    @Test func flexClockInPersistsAndRejectsOtherDates() {
+        let defaults = UserDefaults(suiteName: "TodayTests.flex.\(UUID())")!
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(12))
+        vm.syncFlexClockIn(date(9, 20), now: date(12))
+        let reloaded = TimeCalculatorViewModel(defaults: defaults, now: date(12))
+        #expect(reloaded.isStartTimeFromFlex)
+        #expect(reloaded.startTime == date(9, 20))
+        reloaded.syncFlexClockIn(date(13), now: date(12))
+        #expect(reloaded.startTime == date(9, 20))
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: date(12))!
+        let nextDay = TimeCalculatorViewModel(defaults: defaults, now: tomorrow)
+        #expect(!nextDay.isStartTimeFromFlex)
+        #expect(nextDay.isStartTimeUnset)
+        nextDay.syncFlexClockIn(date(9, 20), now: tomorrow)
+        #expect(nextDay.isStartTimeUnset)
+        vm.resetTodayState()
+        #expect(!vm.isStartTimeFromFlex)
+    }
+
 }
