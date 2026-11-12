@@ -320,8 +320,10 @@ final class FlexConnection: NSObject, ObservableObject, WKNavigationDelegate, WK
         let store = webView.configuration.websiteDataStore
         store.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { entries in
             store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), for: entries) {
-                self.isDisconnecting = false
-                self.message = "연결 정보를 삭제했습니다. 다시 연결하려면 로그인을 눌러주세요."
+                Task { @MainActor in
+                    self.isDisconnecting = false
+                    self.message = "연결 정보를 삭제했습니다. 다시 연결하려면 로그인을 눌러주세요."
+                }
             }
         }
     }
