@@ -27,8 +27,16 @@ def validate(archive, feed, source_plist):
     enclosure = item.find("enclosure")
     if enclosure is None or int(enclosure.get("length", "0")) != archive.stat().st_size:
         raise ValueError("Archive size does not match feed")
-    expected_url = ("https://github.com/ghwaKim/jibegaza_menubar/releases/download/v"
-                    + info["CFBundleShortVersionString"] + "/" + archive.name)
+    channel = info.get("JibegazaReleaseChannel", "stable")
+    # Support running directly and importing via the test loader.
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    from release_config import release_config, BASE_URL
+    config = release_config(info["CFBundleShortVersionString"], info["CFBundleVersion"], channel)
+    if (info["SUFeedURL"] != config["feed"] or archive.name != config["archive"]
+            or info.get("JibegazaReleaseTag", config["tag"]) != config["tag"]
+            or info.get("JibegazaUpdateArchive", config["archive"]) != config["archive"]):
+        raise ValueError("Update channel, feed, or archive mismatch")
+    expected_url = f"{BASE_URL}/download/{config['tag']}/{archive.name}"
     if enclosure.get("url") != expected_url:
         raise ValueError("Unexpected update download URL")
     signature = enclosure.get(namespace + "edSignature", "")

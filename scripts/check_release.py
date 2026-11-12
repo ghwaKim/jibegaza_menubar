@@ -30,17 +30,20 @@ def api(path):
     return json.loads(subprocess.check_output(["gh", "api", path], text=True))
 
 
-def resolve_numbers(source, releases, requested_version="", requested_build=""):
+def resolve_numbers(source, releases, requested_version="", requested_build="", channel="stable"):
     """Use the greatest source/release values; drafts reserve version tags too."""
+    if channel not in ("stable", "testing"):
+        raise ValueError("Invalid release channel")
+    testing_version = None
     previous_version = source["CFBundleShortVersionString"]
     previous_build = int(source["CFBundleVersion"])
     reserved_tags = {release["tag_name"] for release in releases}
     for release in releases:
         tag = release["tag_name"]
-        if re.fullmatch(r"v[0-9]+\.[0-9]+", tag):
+        if not release["prerelease"] and re.fullmatch(r"v[0-9]+\.[0-9]+", tag):
             if version_tuple(tag[1:]) > version_tuple(previous_version):
                 previous_version = tag[1:]
-        if release["draft"] or release["prerelease"]:
+        if release["draft"] or (release["prerelease"] and tag != "testing"):
             continue
         if any(asset["name"] == "appcast.xml" for asset in release["assets"]):
             with tempfile.TemporaryDirectory() as directory:
@@ -56,12 +59,19 @@ def resolve_numbers(source, releases, requested_version="", requested_build=""):
                         raise ValueError("Published appcast has an invalid build number")
                     previous_build = max(previous_build, int(old_build))
                     display_version = item.findtext(namespace + "shortVersionString")
-                    if display_version and version_tuple(display_version) > version_tuple(previous_version):
-                        previous_version = display_version
+                    if display_version:
+                        version_tuple(display_version)
+                        if release["prerelease"]:
+                            testing_version = max(testing_version or display_version, display_version, key=version_tuple)
+                        elif version_tuple(display_version) > version_tuple(previous_version):
+                            previous_version = display_version
     major, minor = version_tuple(previous_version)
-    version = requested_version.strip() or f"{major}.{minor + 1}"
+    next_version = f"{major}.{minor + 1}"
+    if channel == "testing" and testing_version:
+        next_version = max(next_version, testing_version, key=version_tuple)
+    version = requested_version.strip() or next_version
     build = requested_build.strip() or str(previous_build + 1)
-    if f"v{version}" in reserved_tags:
+    if channel == "stable" and f"v{version}" in reserved_tags:
         raise ValueError("This release tag already exists (including drafts)")
     validate_numbers(version, build, previous_version, str(previous_build))
     return version, build
@@ -76,13 +86,14 @@ def main():
         ["gh", "api", "--paginate", "--slurp", f"repos/{REPOSITORY}/releases?per_page=100"], text=True))
     version, build = resolve_numbers(
         source, [release for page in pages for release in page],
-        os.environ.get("RELEASE_VERSION", ""), os.environ.get("RELEASE_BUILD_NUMBER", ""))
+        os.environ.get("RELEASE_VERSION", ""), os.environ.get("RELEASE_BUILD_NUMBER", ""),
+        os.environ.get("RELEASE_CHANNEL", "stable"))
     if os.environ.get("GITHUB_ENV"):
         with open(os.environ["GITHUB_ENV"], "a") as output:
             output.write(f"RELEASE_VERSION={version}\nRELEASE_BUILD_NUMBER={build}\n")
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
-            output.write(f"### Release version\n\nv{version} (build {build})\n")
+            output.write(f"### Release version\n\nv{version} (build {build}) — {os.environ.get('RELEASE_CHANNEL', 'stable')}\n")
     print(f"Release v{version} (build {build}) passed preflight.")
 
 
