@@ -95,6 +95,7 @@ struct WeeklyDayCard: View {
 
     @ViewBuilder
     private func weeklyInputRow(day: DayWorkData, index: Int) -> some View {
+        let resetDisabled = day.isConfirmed || day.lockStart || day.lockEnd || day.lockManual
         HStack(alignment: .center, spacing: 8) {
             if day.mode == .range {
                 HStack(spacing: 10) {
@@ -151,11 +152,11 @@ struct WeeklyDayCard: View {
                     .padding(6)
             }
             .buttonStyle(.plain)
-            .disabled(day.isConfirmed || day.lockStart || day.lockEnd || day.lockManual)
-            .foregroundStyle(.tertiary)
+            .disabled(resetDisabled)
+            .foregroundStyle(resetDisabled ? Color(nsColor: .tertiaryLabelColor) : Color.secondary)
             .background(
                 Circle()
-                    .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.7))
+                    .fill(WorkControlColors.disabledBackground)
             )
         }
     }

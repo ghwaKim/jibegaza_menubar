@@ -1,7 +1,12 @@
 import AppKit
 import SwiftUI
 
+enum WorkControlColors {
+    static let disabledBackground = Color(nsColor: .quaternaryLabelColor).opacity(0.5)
+}
+
 struct ManualTimeField: View {
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
     let text: Binding<String>
     let disabled: Bool
@@ -15,7 +20,7 @@ struct ManualTimeField: View {
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(1))
+                        .fill(disabled || !isEnabled ? WorkControlColors.disabledBackground : Color(nsColor: .windowBackgroundColor))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -30,6 +35,7 @@ struct ManualTimeField: View {
 }
 
 struct WeeklyTimeSlotField: View {
+    @Environment(\.isEnabled) private var isEnabled
     let timeText: String
     let selection: Binding<Date>
     let activate: () -> Void
@@ -57,7 +63,7 @@ struct WeeklyTimeSlotField: View {
         .padding(.vertical, 2)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
+                .fill(isEnabled ? Color(nsColor: .windowBackgroundColor) : WorkControlColors.disabledBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -94,7 +100,7 @@ where Option.AllCases: RandomAccessCollection {
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
+                    .fill(WorkControlColors.disabledBackground)
             )
         }
         .menuStyle(.button)
