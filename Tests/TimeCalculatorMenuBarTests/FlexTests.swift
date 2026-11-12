@@ -97,7 +97,7 @@ struct FlexTests {
 
     @Test func importRefreshesFlexValuesAndRejectsWrongWeek() {
         let defaults = UserDefaults(suiteName: "FlexTests.\(UUID())")!
-        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6))
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6), calendar: calendar)
         let monday = calendar.startOfDay(for: date(2))
         _ = vm.importFlexRecords([FlexWorkRecord(date: monday, minutes: 495)], now: date(6))
         #expect(vm.weeklyData[0].manualHours == "8")
@@ -140,7 +140,7 @@ struct FlexTests {
 
     @Test func automaticImportAcceptsTodayAndKeepsManualValuesOnWeekChange() {
         let defaults = UserDefaults(suiteName: "FlexTests.auto.\(UUID())")!
-        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(2))
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(2), calendar: calendar)
         let today = FlexWorkRecord(date: date(2), minutes: 480, accountID: "me")
         _ = vm.importFlexRecords([today], now: date(2))
         #expect(!vm.weeklyData[0].importedFromFlex)
@@ -159,7 +159,7 @@ struct FlexTests {
 
     @Test func completedFlexWorkReplacesManualPlansButKeepsFutureAndLocks() {
         let defaults = UserDefaults(suiteName: "FlexTests.plans.\(UUID())")!
-        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6))
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6), calendar: calendar)
         vm.updateWeeklyManualHours(idx: 0, value: "8")
         vm.updateWeeklyManualHours(idx: 1, value: "8")
         vm.toggleWeeklyConfirmation(idx: 1)
@@ -198,7 +198,7 @@ struct FlexTests {
 
     @Test func flexActualRecalculatesRemainingPlanAndReleasesCalculatedTarget() {
         let defaults = UserDefaults(suiteName: "FlexTests.target.\(UUID())")!
-        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6))
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(6), calendar: calendar)
         for index in 0..<4 { vm.updateWeeklyManualHours(idx: index, value: "8") }
         #expect(vm.isWeeklyAutoCalculated(at: 4))
         _ = vm.importFlexRecords([FlexWorkRecord(date: date(2), minutes: 450)], now: date(6))
