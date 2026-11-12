@@ -4,6 +4,8 @@ import SwiftUI
 
 @MainActor
 final class TimeCalculatorViewModel: ObservableObject {
+    @Published private(set) var recordedWeekStart: Date?
+    @Published private(set) var previousWeek: WeeklyArchive?
     @Published var selectedTab: WorkTab = .today
     @Published private(set) var isStartTimeFromFlex: Bool
     @Published private(set) var startTime: Date
@@ -41,6 +43,13 @@ final class TimeCalculatorViewModel: ObservableObject {
         self.calendar = calendar
         let saved = store.load(now: now, calendar: calendar)
         let today = saved.today
+        let hasRecords = saved.weeklyData.contains {
+            !$0.start.isEmpty || !$0.end.isEmpty || !$0.manualHours.isEmpty || !$0.manualMinutes.isEmpty
+                || $0.leaveType != .none || $0.isConfirmed
+        }
+        recordedWeekStart = store.recordedWeekStart ?? store.flexWeekStart
+            ?? (hasRecords ? nil : WorkWeek.start(for: now, calendar: calendar))
+        previousWeek = store.weeklyArchive
         currentTime = now
         trackedDayStart = today.dayStart
         lastEditedField = saved.lastEditedField
@@ -62,6 +71,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         manualOverrideTargetMinutes = today.manualOverrideTargetMinutes
         isManualTargetSelectionActive = today.isManualTargetSelectionActive
         autoSuggestedTargetMinutes = nil
+        store.recordedWeekStart = recordedWeekStart
 
         if let target = autoFillTarget, !WeeklyWorkCalculator.isValidAutoFillTarget(data: weeklyData, target: target) {
             autoFillTarget = nil
@@ -76,6 +86,61 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         refreshTodayTargetFromCurrentContext(syncInputFields: true)
         startTimer()
+    }
+
+    var isCurrentWorkWeek: Bool {
+        recordedWeekStart == WorkWeek.start(for: currentTime, calendar: calendar)
+    }
+
+    var weeklyDateRange: String {
+        guard let start = recordedWeekStart else { return "주차 미확인" }
+        return weekLabel(start)
+    }
+
+    private func weekLabel(_ start: Date) -> String {
+        let end = calendar.date(byAdding: .day, value: 4, to: start)!
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy년 M월 d일"
+        let first = formatter.string(from: start)
+        formatter.dateFormat = calendar.component(.year, from: start) == calendar.component(.year, from: end)
+            ? "M월 d일" : "yyyy년 M월 d일"
+        return first + "~" + formatter.string(from: end)
+    }
+
+    func weeklyDayTitle(at index: Int) -> String {
+        guard let start = recordedWeekStart,
+              let date = calendar.date(byAdding: .day, value: index, to: start) else { return weekDays[index] }
+        return weekDays[index] + " \(calendar.component(.month, from: date))/\(calendar.component(.day, from: date))"
+    }
+
+    var weekChangeNotice: String? {
+        guard !isCurrentWorkWeek else { return nil }
+        return recordedWeekStart == nil
+            ? "기존 기록의 주차를 확인할 수 없습니다. 오늘 목표 자동 계산에는 사용하지 않습니다."
+            : "이전 주 기록이 남아 있습니다. 오늘 목표 자동 계산에는 사용하지 않습니다."
+    }
+
+    var previousWeekTitle: String {
+        previousWeek?.weekStart.map(weekLabel) ?? "주차 미확인 기록"
+    }
+
+    func archiveAndStartCurrentWeek() {
+        archiveCurrentWeek()
+        resetWeeklyState()
+    }
+
+    private func archiveCurrentWeek() {
+        guard weeklyData.contains(where: {
+            !$0.start.isEmpty || !$0.end.isEmpty || !$0.manualHours.isEmpty || !$0.manualMinutes.isEmpty
+                || $0.leaveType != .none || $0.isConfirmed
+        }) else { return }
+        let archive = WeeklyArchive(weekStart: recordedWeekStart, savedAt: currentTime,
+            data: weeklyData, target: autoFillTarget, excludedIndexes: excludedAutoFillIndexes,
+            flexAccountID: store.flexAccountID)
+        store.weeklyArchive = archive
+        previousWeek = archive
     }
 
     var menuBarTitle: String {
@@ -148,6 +213,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private var appliesCoreTime: Bool {
+        if recordedWeekStart != nil && !isCurrentWorkWeek { return true }
         guard let index = currentWeekdayIndex else { return false }
         return weeklyData[index].leaveType == .none
     }
@@ -383,6 +449,8 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func resetWeeklyState() {
+        recordedWeekStart = WorkWeek.start(for: currentTime, calendar: calendar)
+        store.recordedWeekStart = recordedWeekStart
         store.flexWeekStart = WorkWeek.start(for: currentTime, calendar: calendar)
         store.flexAccountID = nil
         weeklyData = defaultWeekData()
@@ -739,12 +807,15 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func importFlexRecords(_ records: [FlexWorkRecord], now: Date = Date(), automatic: Bool = false) -> String {
         let imported = FlexImportPolicy.apply(records, to: weeklyData,
-            savedWeek: store.flexWeekStart, savedAccount: store.flexAccountID,
+            savedWeek: store.recordedWeekStart ?? store.flexWeekStart, savedAccount: store.flexAccountID,
             now: now, automatic: automatic, calendar: calendar)
         switch imported {
         case .unchanged(let message):
             return message
         case let .applied(data, week, account, startsNewWeek, message):
+            if startsNewWeek { archiveCurrentWeek() }
+            recordedWeekStart = week
+            store.recordedWeekStart = week
             store.flexWeekStart = week
             if let account { store.flexAccountID = account }
             let excluded = startsNewWeek ? [] : excludedAutoFillIndexes
@@ -799,7 +870,9 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func refreshTodayTargetFromCurrentContext(syncInputFields: Bool) {
-        let autoSuggestionState = TodayTargetSuggestion(weeklyData: weeklyData, currentTime: currentTime, calendar: calendar).resolve()
+        let autoSuggestionState: TodayTargetSuggestion.State = isCurrentWorkWeek
+            ? TodayTargetSuggestion(weeklyData: weeklyData, currentTime: currentTime, calendar: calendar).resolve()
+            : .unavailable
 
         switch autoSuggestionState {
         case .suggested(let minutes):

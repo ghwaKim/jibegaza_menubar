@@ -13,6 +13,10 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if WeekRolloverPreview.isEnabled {
+                Text("주차 전환 테스트 · 실제 기록과 분리된 샘플")
+                    .font(.caption).foregroundStyle(.orange)
+            }
             headerSection
             tabPickerSection
             topControlSection
@@ -85,11 +89,12 @@ struct ContentView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .disabled(flex.isDisconnecting)
+                .disabled(flex.isDisconnecting || WeekRolloverPreview.isEnabled)
             }
 
             FlexActionButton(returningTo: viewModel.selectedTab)
                 .fixedSize()
+                .disabled(WeekRolloverPreview.isEnabled)
         }
     }
 

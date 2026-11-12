@@ -5,7 +5,31 @@ struct WeeklySummaryView: View {
     @ObservedObject private var flex = FlexConnection.shared
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("주간 시간 계산").font(.body.weight(.bold))
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("주간 시간 계산").font(.body.weight(.bold))
+                    .fixedSize()
+                Text(viewModel.weeklyDateRange).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let notice = viewModel.weekChangeNotice {
+                Text(notice).font(.caption).foregroundStyle(.orange)
+                Button("보관하고 이번 주 시작") { viewModel.archiveAndStartCurrentWeek() }
+                Text("직전 보관 기록 1개를 유지합니다. 새로 보관하면 기존 보관 기록을 대체합니다.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            if let archive = viewModel.previousWeek {
+                DisclosureGroup("보관 기록 · " + viewModel.previousWeekTitle) {
+                    ForEach(Array(archive.data.enumerated()), id: \.offset) { _, day in
+                        HStack {
+                            Text(day.day + " · " + day.leaveType.title)
+                            Spacer()
+                            Text(formatMinutesToKorean(getDailyMinutes(day)))
+                        }.font(.caption)
+                    }
+                    Text("보관 기록은 현재 주간 합계와 오늘 목표 계산에 포함되지 않습니다.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
             if flex.connected || flex.lastSync != nil {
                 FlexSyncSummaryView()
             } else {

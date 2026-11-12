@@ -56,6 +56,22 @@ final class WorkStateStore {
             excludedAutoFillIndexes: defaults.array(forKey: Keys.excludedAutoFillIndexes) as? [Int] ?? [])
     }
 
+    var recordedWeekStart: Date? {
+        get { defaults.object(forKey: "weekly.recordedWeekStart") as? Date }
+        set { defaults.set(newValue, forKey: "weekly.recordedWeekStart") }
+    }
+
+    var weeklyArchive: WeeklyArchive? {
+        get {
+            guard let data = defaults.data(forKey: "weekly.previousArchive") else { return nil }
+            return try? JSONDecoder().decode(WeeklyArchive.self, from: data)
+        }
+        set {
+            guard let newValue, let data = try? JSONEncoder().encode(newValue) else { return }
+            defaults.set(data, forKey: "weekly.previousArchive")
+        }
+    }
+
     var lastActiveDayStart: Date? {
         get { defaults.object(forKey: Keys.lastActiveDayStart) as? Date }
         set { defaults.set(newValue, forKey: Keys.lastActiveDayStart) }

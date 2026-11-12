@@ -17,15 +17,19 @@ enum TimeCalculatorMenuBarApp {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let viewModel = TimeCalculatorViewModel()
+    private let viewModel = WeekRolloverPreview.makeViewModel()
     private var menuBar: MenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        AppUpdater.shared.start()
+        if !WeekRolloverPreview.isEnabled { AppUpdater.shared.start() }
 
         let menuBar = MenuBarController(viewModel: viewModel)
         self.menuBar = menuBar
+        if WeekRolloverPreview.isEnabled {
+            menuBar.show()
+            return
+        }
         FlexConnection.shared.start(
             onClockIn: { [weak viewModel] date, now in viewModel?.syncFlexClockIn(date, now: now) },
             onImportRecords: { [weak viewModel] records, now, automatic in
