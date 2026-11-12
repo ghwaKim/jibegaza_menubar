@@ -15,7 +15,8 @@ case "${1:---test}" in
   -h|--help)
     echo "Usage: zsh scripts/build_app.sh [--test|--release]"
     echo "Default: --test (keep the current version, write to dist/test)"
-    echo "--release: increment the version and build number, write to dist"
+    echo "--release: create signed updates using the selected RELEASE_CHANNEL (stable/testing)"
+    echo "RELEASE_CHANNEL=testing --test: create a bootstrap test app with the next display version"
     exit 0
     ;;
   *)
@@ -50,6 +51,7 @@ if [[ "$BUILD_MODE" == "release" && ( -z "${SPARKLE_PRIVATE_KEY_FILE:-}" || ! -r
   echo "Set SPARKLE_PRIVATE_KEY_FILE to a readable external Sparkle private-key file." >&2
   exit 1
 fi
+RELEASE_CHANNEL="${RELEASE_CHANNEL:-stable}"
 APP_VERSION="$CURRENT_VERSION"
 BUILD_NUMBER="$CURRENT_BUILD"
 NEXT_PLIST="$LOCK_DIR/Info.plist"
@@ -66,12 +68,40 @@ CHECK
   plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$NEXT_PLIST"
   plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$NEXT_PLIST"
 fi
+# --test can create an update-capable bootstrap app without a private key.
+if [[ "$BUILD_MODE" == "test" && "$RELEASE_CHANNEL" == "testing" ]]; then
+  APP_VERSION="${RELEASE_VERSION:-${CURRENT_VERSION%.*}.$(( ${CURRENT_VERSION##*.} + 1 ))}"
+  BUILD_NUMBER="${RELEASE_BUILD_NUMBER:-$CURRENT_BUILD}"
+fi
+python3 - "$ROOT_DIR" "$NEXT_PLIST" "$APP_VERSION" "$BUILD_NUMBER" "$RELEASE_CHANNEL" <<'CONFIG'
+import plistlib, sys
+sys.path.insert(0, sys.argv[1] + "/scripts")
+from check_release import version_tuple
+from release_config import release_config
+path, version, build, channel = sys.argv[2:]
+version_tuple(version)
+if not build.isdecimal() or int(build) <= 0:
+    raise SystemExit("Invalid build number")
+config = release_config(version, build, channel)
+with open(path, "rb") as f:
+    info = plistlib.load(f)
+info.update(CFBundleShortVersionString=version, CFBundleVersion=build,
+            SUFeedURL=config["feed"], JibegazaReleaseChannel=channel,
+            JibegazaReleaseTag=config["tag"], JibegazaUpdateArchive=config["archive"])
+with open(path, "wb") as f:
+    plistlib.dump(info, f)
+CONFIG
+RELEASE_TAG="$(plutil -extract JibegazaReleaseTag raw "$NEXT_PLIST")"
+UPDATE_ARCHIVE="$(plutil -extract JibegazaUpdateArchive raw "$NEXT_PLIST")"
 APP_DIR="$OUTPUT_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 RELEASE_BINARY="$ROOT_DIR/.build/release/$EXECUTABLE_NAME"
 ZIP_PATH="$OUTPUT_DIR/$APP_NAME v$APP_VERSION.zip"
+if [[ "$RELEASE_CHANNEL" == "testing" ]]; then
+  ZIP_PATH="$OUTPUT_DIR/$APP_NAME v$APP_VERSION-test-build$BUILD_NUMBER.zip"
+fi
 ICON_PATH="$ROOT_DIR/Resources/AppIcon.icns"
 EXPORT_IMAGE_PATH="$ROOT_DIR/Assets/Export/앱_설치_가이드.png"
 DIST_EXPORT_IMAGE_PATH="$OUTPUT_DIR/앱_설치_가이드.png"
@@ -135,14 +165,14 @@ if [[ "$BUILD_MODE" == "release" ]]; then
   # Publish an app-only ZIP: the human installation instructions are kept in the sharing ZIP above.
   UPDATE_DIR="$OUTPUT_DIR/updates/$BUILD_NUMBER"
   mkdir -p "$UPDATE_DIR"
-  UPDATE_ZIP="$UPDATE_DIR/Jibegaza-MenuBar-$APP_VERSION.zip"
+  UPDATE_ZIP="$UPDATE_DIR/$UPDATE_ARCHIVE"
   ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$UPDATE_ZIP"
   "$SPARKLE_DIR/bin/generate_appcast" \
     --ed-key-file "$SPARKLE_PRIVATE_KEY_FILE" \
-    --download-url-prefix "https://github.com/ghwaKim/jibegaza_menubar/releases/download/v$APP_VERSION/" \
+    --download-url-prefix "https://github.com/ghwaKim/jibegaza_menubar/releases/download/$RELEASE_TAG/" \
     "$UPDATE_DIR"
   python3 "$ROOT_DIR/scripts/validate_update.py" "$UPDATE_ZIP" "$UPDATE_DIR/appcast.xml" "$NEXT_PLIST"
-  echo "Upload both files in $UPDATE_DIR to GitHub Release v$APP_VERSION."
+  echo "Upload both files in $UPDATE_DIR to GitHub Release $RELEASE_TAG."
   mv "$NEXT_PLIST" "$INFO_PLIST_PATH"
 fi
 

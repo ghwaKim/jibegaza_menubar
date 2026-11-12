@@ -3,8 +3,16 @@ name: Release macOS app
 on:
   workflow_dispatch:
     inputs:
+      channel:
+        description: '배포 채널: testing은 Pre-release, stable은 정식 Latest'
+        required: true
+        type: choice
+        default: testing
+        options:
+          - testing
+          - stable
       version:
-        description: '선택: 비우면 최신 버전에서 minor +1 (예: 1.4 → 1.5)'
+        description: '선택: 비우면 자동 결정. testing은 다음 정식 버전을 유지'
         required: false
         type: string
       build_number:
@@ -21,12 +29,14 @@ concurrency:
 
 jobs:
   release:
-    # Secrets are used only for a manual release of the default branch in this repository.
-    if: github.repository == 'ghwaKim/jibegaza_menubar' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # Stable releases require the default branch; testing accepts a manually selected branch.
+    if: github.repository == 'ghwaKim/jibegaza_menubar' && (inputs.channel == 'testing' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: macos-15
     timeout-minutes: 30
     permissions:
       contents: write
+    env:
+      RELEASE_CHANNEL: ${{ inputs.channel }}
     steps:
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (Node.js 24)

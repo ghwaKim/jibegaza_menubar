@@ -26,7 +26,7 @@ metadata = module("validate_update")
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         # Tests calling main must not modify the real Actions job's env/summary files.
-        environment = patch.dict(os.environ, {"GITHUB_ENV": "", "GITHUB_STEP_SUMMARY": ""})
+        environment = patch.dict(os.environ, {"GITHUB_ENV": "", "GITHUB_STEP_SUMMARY": "", "RELEASE_CHANNEL": "stable"})
         environment.start()
         self.addCleanup(environment.stop)
 
@@ -116,6 +116,28 @@ class ReleaseTests(unittest.TestCase):
             version, build = numbers.resolve_numbers(source, [])
             self.assertEqual(env_file.read_text(), f"RELEASE_VERSION={version}\nRELEASE_BUILD_NUMBER={build}\n")
             self.assertIn(f"v{version} (build {build})", summary_file.read_text())
+
+    def test_testing_channel_keeps_version_and_increments_build(self):
+        source = {"CFBundleShortVersionString": "1.3", "CFBundleVersion": "4"}
+        release = {"tag_name": "testing", "draft": False, "prerelease": True,
+                   "assets": [{"name": "appcast.xml"}]}
+
+        def download(command, **kwargs):
+            target = pathlib.Path(command[command.index("--dir") + 1])
+            (target / "appcast.xml").write_text(
+                '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+                '<channel><item><sparkle:version>5</sparkle:version>'
+                '<sparkle:shortVersionString>1.4</sparkle:shortVersionString></item></channel></rss>')
+
+        self.assertEqual(numbers.resolve_numbers(source, [], channel="testing"), ("1.4", "5"))
+        with patch.object(numbers.subprocess, "run", side_effect=download):
+            self.assertEqual(numbers.resolve_numbers(source, [release], channel="testing"), ("1.4", "6"))
+            # The final release retains 1.4, and must have a build newer than the test app.
+            self.assertEqual(numbers.resolve_numbers(source, [release], channel="stable"), ("1.4", "6"))
+            with self.assertRaises(ValueError):
+                numbers.resolve_numbers(source, [release], requested_build="5", channel="testing")
+            stable = {"tag_name": "v1.4", "draft": False, "prerelease": False, "assets": []}
+            self.assertEqual(numbers.resolve_numbers(source, [release, stable], channel="testing"), ("1.5", "6"))
 
     def test_feed_must_match_exact_bundle_and_archive(self):
         with tempfile.TemporaryDirectory() as directory:
