@@ -48,7 +48,7 @@ private var appVersionText: String {
                 Text("🏃‍♂️💨")
             }
             Spacer()
-            Button("업데이트 확인…") { updater.checkForUpdates() }
+            Button(updater.buttonTitle) { updater.checkForUpdates() }
                 .font(.caption)
                 .disabled(!updater.canCheckForUpdates)
                 .padding(.trailing, 10)
