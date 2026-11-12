@@ -21,7 +21,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     @Published private var currentTime: Date
 
     private let defaults: UserDefaults
-    private let calendar = Calendar.current
+    private let calendar: Calendar
     private let fixedBreakMinutes = 60
     private var timerCancellable: AnyCancellable?
     private var trackedDayStart: Date
@@ -58,8 +58,9 @@ final class TimeCalculatorViewModel: ObservableObject {
         didSet { defaults.set(lastEditedField.rawValue, forKey: Keys.lastEditedField) }
     }
 
-    init(defaults: UserDefaults = .standard, now: Date = Date()) {
+    init(defaults: UserDefaults = .standard, now: Date = Date(), calendar: Calendar = .current) {
         self.defaults = defaults
+        self.calendar = calendar
         currentTime = now
         trackedDayStart = calendar.startOfDay(for: now)
 
