@@ -4,6 +4,8 @@ struct WeeklyDayCard: View {
     @EnvironmentObject private var viewModel: TimeCalculatorViewModel
     @Environment(\.colorScheme) private var colorScheme
     let index: Int
+    @State private var inputRevision = UUID()
+
     var body: some View {
         let day = viewModel.weeklyDay(at: index)
 
@@ -70,6 +72,7 @@ struct WeeklyDayCard: View {
 
             if day.leaveType != .annual {
                 weeklyInputRow(day: day, index: index)
+                    .id(inputRevision)
             } else {
                 HStack {
                     Spacer()
@@ -138,6 +141,9 @@ struct WeeklyDayCard: View {
                 .accessibilityLabel("일 인정 시간: \(viewModel.weeklyDayRecognizedText(at: index))")
 
             Button {
+                // Invalidate the old editor before clearing the model. Its delayed
+                // callbacks must not restore the text that Reset just removed.
+                inputRevision = UUID()
                 viewModel.resetWeeklyDay(idx: index)
             } label: {
                 Image(systemName: "arrow.counterclockwise")
@@ -169,7 +175,8 @@ struct WeeklyDayCard: View {
     }
 
     private func weeklyStartDateBinding(index: Int) -> Binding<Date> {
-        Binding(
+        let revision = inputRevision
+        return Binding(
             get: {
                 dateFromWeeklyTimeString(
                     viewModel.weeklyDay(at: index).start,
@@ -177,12 +184,16 @@ struct WeeklyDayCard: View {
                     fallbackMinute: 0
                 )
             },
-            set: { viewModel.updateWeeklyStart(idx: index, value: minutesToTime(minutesFromDate($0))) }
+            set: {
+                guard revision == inputRevision else { return }
+                viewModel.updateWeeklyStart(idx: index, value: minutesToTime(minutesFromDate($0)))
+            }
         )
     }
 
     private func weeklyEndDateBinding(index: Int) -> Binding<Date> {
-        Binding(
+        let revision = inputRevision
+        return Binding(
             get: {
                 dateFromWeeklyTimeString(
                     viewModel.weeklyDay(at: index).end,
@@ -190,7 +201,10 @@ struct WeeklyDayCard: View {
                     fallbackMinute: 0
                 )
             },
-            set: { viewModel.updateWeeklyEnd(idx: index, value: minutesToTime(minutesFromDate($0))) }
+            set: {
+                guard revision == inputRevision else { return }
+                viewModel.updateWeeklyEnd(idx: index, value: minutesToTime(minutesFromDate($0)))
+            }
         )
     }
 
@@ -209,16 +223,24 @@ struct WeeklyDayCard: View {
     }
 
     private func weeklyManualHoursBinding(index: Int) -> Binding<String> {
-        Binding(
+        let revision = inputRevision
+        return Binding(
             get: { viewModel.weeklyDay(at: index).manualHours },
-            set: { viewModel.updateWeeklyManualHours(idx: index, value: $0) }
+            set: {
+                guard revision == inputRevision else { return }
+                viewModel.updateWeeklyManualHours(idx: index, value: $0)
+            }
         )
     }
 
     private func weeklyManualMinutesBinding(index: Int) -> Binding<String> {
-        Binding(
+        let revision = inputRevision
+        return Binding(
             get: { viewModel.weeklyDay(at: index).manualMinutes },
-            set: { viewModel.updateWeeklyManualMinutes(idx: index, value: $0) }
+            set: {
+                guard revision == inputRevision else { return }
+                viewModel.updateWeeklyManualMinutes(idx: index, value: $0)
+            }
         )
     }
 }

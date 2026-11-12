@@ -487,12 +487,23 @@ final class TimeCalculatorViewModel: ObservableObject {
         updateWeeklyInput(idx: idx, field: .manual) { $0.manualMinutes = sanitizeNumberString(value) }
     }
 
+    private func autoFillExclusionsAfterEditing(_ data: [DayWorkData], editedIndex: Int? = nil) -> [Int] {
+        excludedAutoFillIndexes.filter { index in
+            guard data.indices.contains(index), index != editedIndex else { return false }
+            let day = data[index]
+            // Reset suppresses immediate refilling, not future reverse calculations.
+            // Keep exclusions for partially filled fields explicitly made manual.
+            return !day.start.isEmpty || !day.end.isEmpty
+                || !day.manualHours.isEmpty || !day.manualMinutes.isEmpty
+        }
+    }
+
     private func updateWeeklyInput(idx: Int, field: AutoFillType, mutation: (inout DayWorkData) -> Void) {
         guard !weeklyData[idx].isLocked(field) else { return }
         var data = weeklyData
         mutation(&data[idx])
         data[idx].importedFromFlex = false
-        var excluded = excludedAutoFillIndexes.filter { $0 != idx }
+        var excluded = autoFillExclusionsAfterEditing(data, editedIndex: idx)
         var preferred = autoFillTarget
         // Editing an automatically calculated field explicitly makes it manual.
         if preferred == AutoFillTarget(idx: idx, type: field) {
@@ -714,7 +725,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         mutation(&newData[idx])
         newData[idx].importedFromFlex = false
 
-        let nextExcluded = excludedAutoFillIndexes
+        let nextExcluded = autoFillExclusionsAfterEditing(newData)
         let preferredTarget = autoFillTarget?.idx == idx ? nil : autoFillTarget
         let shouldKeepPreferredTarget = preferredTarget != nil
         let result = WeeklyWorkCalculator.applyAutoFill(
