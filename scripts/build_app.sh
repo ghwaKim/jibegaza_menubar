@@ -42,13 +42,27 @@ if [[ ! "$CURRENT_VERSION" =~ '^[0-9]+\.[0-9]+$' || ! "$CURRENT_BUILD" =~ '^[0-9
   echo "Expected a major.minor version and a numeric build number in $INFO_PLIST_PATH" >&2
   exit 1
 fi
+if [[ "$BUILD_MODE" == "release" ]] && ! plutil -extract SUPublicEDKey raw "$INFO_PLIST_PATH" >/dev/null 2>&1; then
+  echo "Run zsh scripts/setup_updates.sh <public-key> before creating an update-enabled release." >&2
+  exit 1
+fi
+if [[ "$BUILD_MODE" == "release" && ( -z "${SPARKLE_PRIVATE_KEY_FILE:-}" || ! -r "${SPARKLE_PRIVATE_KEY_FILE:-}" ) ]]; then
+  echo "Set SPARKLE_PRIVATE_KEY_FILE to a readable external Sparkle private-key file." >&2
+  exit 1
+fi
 APP_VERSION="$CURRENT_VERSION"
 BUILD_NUMBER="$CURRENT_BUILD"
 NEXT_PLIST="$LOCK_DIR/Info.plist"
 cp "$INFO_PLIST_PATH" "$NEXT_PLIST"
 if [[ "$BUILD_MODE" == "release" ]]; then
-  APP_VERSION="${CURRENT_VERSION%.*}.$(( ${CURRENT_VERSION##*.} + 1 ))"
-  BUILD_NUMBER="$(( CURRENT_BUILD + 1 ))"
+  APP_VERSION="${RELEASE_VERSION:-${CURRENT_VERSION%.*}.$(( ${CURRENT_VERSION##*.} + 1 ))}"
+  BUILD_NUMBER="${RELEASE_BUILD_NUMBER:-$(( CURRENT_BUILD + 1 ))}"
+  python3 - "$ROOT_DIR" "$APP_VERSION" "$BUILD_NUMBER" "$CURRENT_VERSION" "$CURRENT_BUILD" <<'CHECK'
+import sys
+sys.path.insert(0, sys.argv[1] + "/scripts")
+from check_release import validate_numbers
+validate_numbers(*sys.argv[2:])
+CHECK
   plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$NEXT_PLIST"
   plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$NEXT_PLIST"
 fi
@@ -71,9 +85,20 @@ if [[ ! -f "$RELEASE_BINARY" ]]; then
   exit 1
 fi
 
+SPARKLE_DIR="$ROOT_DIR/.build/artifacts/sparkle/Sparkle"
+SPARKLE_FRAMEWORK="$SPARKLE_DIR/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
+  echo "Sparkle framework not found: $SPARKLE_FRAMEWORK" >&2
+  exit 1
+fi
+
 echo "Assembling app bundle..."
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+
+mkdir -p "$CONTENTS_DIR/Frameworks"
+ditto "$SPARKLE_FRAMEWORK" "$CONTENTS_DIR/Frameworks/Sparkle.framework"
+cp "$SPARKLE_DIR/LICENSE" "$RESOURCES_DIR/Sparkle-LICENSE.txt"
 
 cp "$NEXT_PLIST" "$CONTENTS_DIR/Info.plist"
 cp "$RELEASE_BINARY" "$MACOS_DIR/$EXECUTABLE_NAME"
@@ -90,7 +115,8 @@ fi
 
 if command -v codesign >/dev/null 2>&1; then
   echo "Applying ad-hoc code signature..."
-  codesign --force --deep --sign - "$APP_DIR"
+  codesign --force --sign - "$APP_DIR"
+  codesign --verify --deep --strict "$APP_DIR"
 fi
 
 echo "Creating zip for sharing..."
@@ -106,6 +132,17 @@ fi
 ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ZIP_PATH"
 rm -rf "$PACKAGE_DIR"
 if [[ "$BUILD_MODE" == "release" ]]; then
+  # Publish an app-only ZIP: the human installation instructions are kept in the sharing ZIP above.
+  UPDATE_DIR="$OUTPUT_DIR/updates/$BUILD_NUMBER"
+  mkdir -p "$UPDATE_DIR"
+  UPDATE_ZIP="$UPDATE_DIR/Jibegaza-MenuBar-$APP_VERSION.zip"
+  ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$UPDATE_ZIP"
+  "$SPARKLE_DIR/bin/generate_appcast" \
+    --ed-key-file "$SPARKLE_PRIVATE_KEY_FILE" \
+    --download-url-prefix "https://github.com/ghwaKim/jibegaza_menubar/releases/download/v$APP_VERSION/" \
+    "$UPDATE_DIR"
+  python3 "$ROOT_DIR/scripts/validate_update.py" "$UPDATE_ZIP" "$UPDATE_DIR/appcast.xml" "$NEXT_PLIST"
+  echo "Upload both files in $UPDATE_DIR to GitHub Release v$APP_VERSION."
   mv "$NEXT_PLIST" "$INFO_PLIST_PATH"
 fi
 
