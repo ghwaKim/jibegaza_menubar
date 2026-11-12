@@ -56,11 +56,22 @@ swift build
 | 경로 | 역할 |
 | --- | --- |
 | `Package.swift`, `Package.resolved` | 실행 대상, 테스트 대상, Sparkle 의존성 |
-| `Sources/TimeCalculatorMenuBar/TimeCalculatorMenuBarApp.swift` | 앱 진입점, 메뉴바·팝오버, 업데이트 시작 |
-| `Sources/TimeCalculatorMenuBar/ContentView.swift` | 오늘·주간 화면 및 업데이트 버튼 |
-| `Sources/TimeCalculatorMenuBar/TimeCalculatorViewModel.swift` | 화면 상태, 계산 연동, 설정 저장 |
-| `Sources/TimeCalculatorMenuBar/TimeMath.swift`, `Models.swift` | 근무시간 계산 및 데이터 모델 |
-| `Sources/TimeCalculatorMenuBar/Flex*.swift` | flex 로그인·조회·가져오기·동기화 |
+| `Sources/TimeCalculatorMenuBar/TimeCalculatorMenuBarApp.swift` | 앱 진입점, 서비스 시작 및 동기화 콜백 연결 |
+| `Sources/TimeCalculatorMenuBar/MenuBarController.swift` | 메뉴바 제목, 팝오버 표시와 화면에 맞춘 크기 조정 |
+| `Sources/TimeCalculatorMenuBar/ContentView.swift` | 헤더·탭·하단 버튼과 전체 화면 구성 |
+| `Sources/TimeCalculatorMenuBar/TodayWorkView.swift` | 오늘 근무 화면과 메뉴바 표시 설정 |
+| `Sources/TimeCalculatorMenuBar/WeeklyWorkView.swift`, `WeeklyDayCard.swift` | 주간 요약·목록·요일 카드와 입력 바인딩 |
+| `Sources/TimeCalculatorMenuBar/WorkInputComponents.swift` | 시간 선택기·숫자 입력·공통 카드 스타일 |
+| `Sources/TimeCalculatorMenuBar/TimeCalculatorViewModel.swift` | 공통 화면 상태, 입력 처리, 계산·저장 결과 반영 |
+| `Sources/TimeCalculatorMenuBar/TodayWorkCalculator.swift`, `TodayTargetSuggestion.swift` | 오늘 시각 계산과 주간 기록 기반 목표 제안 |
+| `Sources/TimeCalculatorMenuBar/WeeklyWorkCalculator.swift` | 주간 입력 완결성 판단, 역산 대상 선정 및 재계산 |
+| `Sources/TimeCalculatorMenuBar/WorkStateStore.swift` | 기존 UserDefaults 키를 유지한 읽기·저장 |
+| `Sources/TimeCalculatorMenuBar/TimeMath.swift`, `WorkWeek.swift`, `Models.swift` | 공통 시간·주차 계산과 데이터 모델 |
+| `Sources/TimeCalculatorMenuBar/FlexConnection.swift` | 동기화 주기, 재시도·취소, 연결 상태 관리 |
+| `Sources/TimeCalculatorMenuBar/FlexLoginController.swift`, `FlexConnectionView.swift` | 로그인 창·WebKit·쿠키 이벤트와 로그인 화면 |
+| `Sources/TimeCalculatorMenuBar/FlexAPI.swift`, `FlexSessionClient.swift` | API 응답 해석과 세션 기반 HTTP 요청 |
+| `Sources/TimeCalculatorMenuBar/FlexImport.swift` | 주차·계정·잠금별 기록 반영 정책과 날짜 범위 |
+| `Sources/TimeCalculatorMenuBar/FlexStatusView.swift` | 연결·동기화 상태 표시 |
 | `Sources/TimeCalculatorMenuBar/AppUpdater.swift` | Sparkle 업데이트 컨트롤러 |
 | `Tests/TimeCalculatorMenuBarTests/` | Swift Testing 기반 계산·flex 테스트 |
 | `Resources/Info.plist` | 앱 식별자, 버전, 업데이트 URL과 공개키 |
@@ -74,6 +85,14 @@ swift build
 | `scripts/tests/` | 배포 검증 코드의 Python 테스트 |
 | `.github/workflows/release.yml` | 수동 실행 방식의 정식 배포 워크플로 |
 | `.build/`, `dist/` | 자동 생성 결과물. Git에서 제외 |
+
+### 상태와 처리 경계
+
+- 오늘·주간 화면은 하나의 `TimeCalculatorViewModel`을 공유합니다. 화면별로 저장된 기록을 복제하지 않습니다.
+- 계산기와 `FlexImportPolicy`는 값으로 결과를 반환하며, 저장이나 로그인·네트워크 상태를 변경하지 않습니다.
+- ViewModel이 계산 결과를 화면 상태에 적용한 뒤 `WorkStateStore`로 저장합니다. 기존 저장 키와 모델의 이전 버전 호환 처리를 유지합니다.
+- `FlexConnection`은 앱 진입점에서 전달한 콜백으로 출근·주간 기록을 반영합니다. 구체적인 ViewModel 타입에 의존하지 않습니다.
+- 로그인 컨트롤러는 쿠키·창 이벤트만 전달합니다. 동기화 중복 방지, 세션 갱신 대기, 요청 세대 검사는 `FlexConnection`에 유지합니다.
 
 ## 로컬 실행
 
