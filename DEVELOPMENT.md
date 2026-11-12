@@ -85,7 +85,7 @@ swift run TimeCalculatorMenuBar
 
 실행 대상이 하나이므로 `swift run`만 입력해도 됩니다. 앱은 메뉴바 앱이므로 일반 앱처럼 메인 창이나 Dock 아이콘이 나타나지 않을 수 있습니다. 화면 상단 메뉴바의 앱 아이콘을 눌러 팝오버를 엽니다. 터미널 실행을 끝내려면 `Control-C`를 누릅니다.
 
-`swift run`은 실행 파일을 직접 실행합니다. `Resources/Info.plist`, 아이콘 등을 포함하는 배포용 `.app`을 조립하지 않으므로 앱 버전이 `알 수 없음`으로 표시되거나 업데이트 버튼이 비활성화될 수 있습니다. 아이콘·버전·실제 앱 실행·업데이트 연결은 다음의 테스트용 `.app`으로 확인합니다.
+`swift run`은 실행 파일을 직접 실행합니다. `Resources/Info.plist`, 아이콘 등을 포함하는 배포용 `.app`을 조립하지 않으므로 헤더에는 `(Local beta)`가 표시되고 업데이트 버튼이 비활성화될 수 있습니다. 아이콘·버전·실제 앱 실행·업데이트 연결은 다음의 테스트용 `.app`으로 확인합니다.
 
 설치된 앱이나 다른 개발용 인스턴스가 실행 중이면 먼저 종료하세요. 테스트용 `.app`도 정식 앱과 같은 번들 식별자 `com.jibegaza.menubar`를 사용하므로 설정과 flex 로그인 상태를 공유할 수 있습니다. 테스트용 빌드가 별도 계정·저장 영역을 만드는 것은 아닙니다.
 
@@ -130,6 +130,16 @@ open "dist/test/Jibegaza MenuBar.app"
 
 이 명령은 **release 최적화로 컴파일**하되, 테스트 공유용으로 패키징합니다. `--test`는 Swift의 debug 빌드를 의미하지 않습니다.
 
+앱 헤더와 공유 ZIP 파일명은 같은 표시 규칙을 사용합니다. `swift run`과 로컬 `--test`는 `(Local beta)`, Actions testing 배포는 `v1.4 (beta)`, stable 배포는 `v1.4`처럼 표시합니다. 내부 버전·빌드 번호와 업데이트 피드는 표시 이름과 별도로 유지됩니다.
+
+| 구분 | 앱 헤더 | 공유 ZIP |
+| --- | --- | --- |
+| 로컬 (`swift run`, `--test`) | `(Local beta)` | `Jibegaza MenuBar (Local beta).zip` (`swift run`은 ZIP 생성 없음) |
+| Pre-release (`testing --release`) | `v1.4 (beta)` | `Jibegaza MenuBar v1.4 (beta).zip` |
+| Latest (`stable --release`) | `v1.4` | `Jibegaza MenuBar v1.4.zip` |
+
+공유 ZIP은 같은 표시 버전으로 다시 빌드하면 같은 파일을 덮어씁니다. 업데이트용 ZIP은 별도 이름으로 빌드마다 보관합니다.
+
 | 항목 | 테스트 빌드 동작 |
 | --- | --- |
 | 버전·빌드 번호 | `Resources/Info.plist`의 현재 값 유지 |
@@ -144,7 +154,7 @@ open "dist/test/Jibegaza MenuBar.app"
 ```text
 dist/test/
 ├── Jibegaza MenuBar.app
-├── Jibegaza MenuBar v1.3.zip
+├── Jibegaza MenuBar (Local beta).zip
 └── 앱_실행_방법.png          # 원본 안내 이미지가 있을 때
 ```
 
@@ -280,14 +290,14 @@ RELEASE_CHANNEL=testing zsh scripts/build_app.sh --test
 open dist/test
 ```
 
-생성되는 파일은 `Jibegaza MenuBar v1.4-test-build4.zip`처럼 테스트 빌드를 표시합니다. 앱을 응용 프로그램 폴더로 옮겨 실행합니다. 이 명령은 소스 `Info.plist`를 변경하지 않고, 조립된 앱에만 테스트 피드를 적용합니다. 표시 버전·빌드를 직접 지정할 수도 있습니다.
+생성되는 공유 파일은 `Jibegaza MenuBar (Local beta).zip`이며, 앱 내부 버전은 1.4 / 빌드 4로 유지됩니다. 앱을 응용 프로그램 폴더로 옮겨 실행합니다. 이 명령은 소스 `Info.plist`를 변경하지 않고, 조립된 앱에만 테스트 피드를 적용합니다. 표시 버전·빌드를 직접 지정할 수도 있습니다.
 
 ```sh
 RELEASE_CHANNEL=testing RELEASE_VERSION=1.4 RELEASE_BUILD_NUMBER=4 \
   zsh scripts/build_app.sh --test
 ```
 
-이미 테스트 배포가 있다면 Actions에서 만들어진 `-test-build<번호>.zip`을 직접 받아 최초 앱으로 설치해도 됩니다. 업데이트 기능이 없는 기존 1.3 앱은 먼저 이 테스트 앱을 직접 설치해야 합니다.
+이미 테스트 배포가 있다면 Actions에서 만들어진 `Jibegaza MenuBar v1.4 (beta).zip`을 직접 받아 최초 앱으로 설치해도 됩니다. 업데이트 기능이 없는 기존 1.3 앱은 먼저 이 테스트 앱을 직접 설치해야 합니다.
 
 ### 다음 테스트 빌드 배포 및 업데이트 확인
 
@@ -345,7 +355,7 @@ plutil -extract CFBundleVersion raw Resources/Info.plist
 5. 개인키를 실행 환경의 `RUNNER_TEMP`에 접근 권한이 제한된 임시 파일로 기록합니다.
 6. 앱 빌드, 프레임워크 포함, ad-hoc 서명, 업데이트 ZIP·피드 생성을 진행합니다.
 7. 번들 정보·파일 크기·URL을 대조하고, 앱에 넣은 공개키로 ZIP 서명을 검증합니다.
-8. 두 파일을 초안 릴리스에 업로드합니다.
+8. 업데이트 ZIP·피드·공유 ZIP을 릴리스에 업로드합니다.
 9. 업로드가 끝나면 릴리스를 공개하고 최신 릴리스로 지정합니다. 서명 단계 종료 시 개인키 임시 파일을 삭제합니다.
 
 개인키를 회사 Mac이나 앱 번들에 복사하지 않으며 키체인에 가져오지 않습니다. Releases 쓰기에는 워크플로의 `GITHUB_TOKEN`을 사용하므로 별도 개인 액세스 토큰은 필요 없습니다. 저장소·조직 정책에서 Actions 쓰기가 차단돼 있으면 해당 정책을 확인해야 합니다.
@@ -362,7 +372,7 @@ GitHub Release v1.4
 └── appcast.xml
 ```
 
-업데이트 ZIP은 앱만 포함합니다. 로컬 빌드 시 생성되는 설치 안내 이미지 포함 공유 ZIP과 다릅니다. 현재 Actions는 위 두 파일만 업로드하며 공유 ZIP을 추가로 업로드하지 않습니다. GitHub가 자동으로 표시하는 Source code ZIP은 실행용 앱이 아닙니다.
+업데이트 ZIP은 앱만 포함합니다. 로컬 빌드 시 생성되는 설치 안내 이미지 포함 공유 ZIP과 다릅니다. Actions는 위 두 파일에 공유 ZIP `Jibegaza MenuBar v1.4.zip`도 함께 업로드합니다. testing에서는 공유 ZIP을 `Jibegaza MenuBar v1.4 (beta).zip`으로 올리고, 같은 버전의 다음 테스트 배포에서 공유 ZIP만 덮어씁니다. 업데이트용 ZIP은 고유한 빌드 이름을 유지합니다. GitHub가 자동으로 표시하는 Source code ZIP은 실행용 앱이 아닙니다.
 
 Actions에서 자동 결정하거나 직접 지정한 버전·빌드는 해당 실행의 앱과 피드에 적용됩니다. 워크플로가 수정한 `Info.plist`를 소스에 커밋·푸시하지는 않습니다. 릴리스 태그는 체크아웃한 소스 커밋을 가리키므로, 나중에 같은 버전을 재현하려면 실행 Summary에 남은 버전·빌드도 함께 확인합니다. 다음 실행도 입력을 비워두면 실제 배포 이력을 기준으로 증가합니다. 소스 버전 파일을 매번 수동으로 갱신할 필요가 없습니다.
 
@@ -437,7 +447,7 @@ python3 scripts/validate_update.py \
 | 증상 | 확인 및 대응 |
 | --- | --- |
 | `swift run` 후 창이 안 보임 | 메뉴바 아이콘을 확인. 이 앱은 팝오버 중심으로 동작 |
-| 버전이 `알 수 없음` 또는 업데이트 버튼 비활성 | `swift run` 대신 테스트 `.app` 사용. 번들 `Info.plist`에 공개키가 있는지 확인 |
+| 로컬 표시만 나오거나 업데이트 버튼 비활성 | `swift run` 대신 테스트 `.app` 사용. 번들 `Info.plist`에 공개키가 있는지 확인 |
 | `No such module 'Testing'` 또는 테스트 링크 실패 | `zsh scripts/test.sh` 사용. 선택된 개발 도구와 Swift 버전 확인 |
 | SDK·컴파일러 버전 불일치 | `xcode-select -p`, `swift --version` 확인 후 서로 호환되는 Xcode/Command Line Tools 사용 |
 | `Another app build is in progress` | 다른 빌드가 끝날 때까지 대기. 비정상 종료로 `dist/.build-app.lock`만 남았다면 실행 중인 빌드가 없는지 확인 후 잠금 폴더 정리 |

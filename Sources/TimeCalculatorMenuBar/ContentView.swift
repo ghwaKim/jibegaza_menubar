@@ -8,15 +8,10 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     private let koreanLocale = Locale(identifier: "ko_KR")
 
-private var appVersionText: String {
-    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-    
-    if let version = version {
-        return "v\(version)"
-    } else {
-        return "알 수 없음"
+    private var appVersionText: String {
+        Bundle.main.object(forInfoDictionaryKey: "JibegazaDisplayVersion") as? String
+            ?? "(Local beta)"
     }
-}
 
     // 팝오버 전체 레이아웃
     var body: some View {
