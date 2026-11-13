@@ -68,6 +68,59 @@ struct WeeklyTests {
         #expect(vm.weeklyData[4].end == "18:00")
     }
 
+    @Test func pinningPreservesEnteredTimesWhileOtherDaysAreIncomplete() {
+        for field in [AutoFillType.start, .end] {
+            let vm = model()
+            vm.resetWeeklyDay(idx: 0)
+            vm.updateWeeklyStart(idx: 4, value: "09:00")
+            vm.updateWeeklyEnd(idx: 4, value: "18:00")
+            vm.toggleWeeklyLock(idx: 4, field: field)
+            #expect(vm.weeklyData[4].start == "09:00")
+            #expect(vm.weeklyData[4].end == "18:00")
+            #expect(vm.canFitWeeklyDayToEightHours(idx: 4))
+            vm.updateWeeklyStart(idx: 0, value: "09:00")
+            vm.updateWeeklyEnd(idx: 0, value: "19:00")
+            #expect(vm.weeklyData[4].start == "09:00")
+            #expect(vm.weeklyData[4].end == "18:00")
+        }
+    }
+
+    @Test func pinnedEmptyEndpointStillResumesAutomaticCalculation() {
+        let vm = model()
+        vm.resetWeeklyDay(idx: 0)
+        vm.updateWeeklyStart(idx: 4, value: "09:00")
+        vm.toggleWeeklyLock(idx: 4, field: .start)
+        #expect(vm.weeklyData[4].end.isEmpty)
+        vm.updateWeeklyStart(idx: 0, value: "09:00")
+        vm.updateWeeklyEnd(idx: 0, value: "18:00")
+        #expect(vm.weeklyData[4].start == "09:00")
+        #expect(vm.weeklyData[4].end == "18:00")
+        #expect(vm.isWeeklyAutoCalculated(at: 4))
+    }
+
+    @Test func changingLeaveToNormalClampsManualDeparture() {
+        for leave in [LeaveType.half, .halfHalf] {
+            let vm = model(leave: leave)
+            vm.updateWeeklyStart(idx: 4, value: "09:00")
+            vm.updateWeeklyEnd(idx: 4, value: "14:00")
+            vm.updateWeeklyLeaveType(idx: 4, leaveType: .none)
+            #expect(vm.weeklyData[4].start == "09:00")
+            #expect(vm.weeklyData[4].end == "15:30")
+            #expect(getDailyMinutes(vm.weeklyData[4]) == 330)
+        }
+    }
+
+    @Test func returningToNormalRangeClampsRetainedDeparture() {
+        let vm = model(leave: .half)
+        vm.updateWeeklyStart(idx: 4, value: "09:00")
+        vm.updateWeeklyEnd(idx: 4, value: "14:00")
+        vm.toggleWeeklyMode(idx: 4)
+        vm.updateWeeklyLeaveType(idx: 4, leaveType: .none)
+        vm.toggleWeeklyMode(idx: 4)
+        #expect(vm.weeklyData[4].start == "09:00")
+        #expect(vm.weeklyData[4].end == "15:30")
+    }
+
     @Test func manualLockAndIncompleteConfirmation() {
         let vm = model(lastMode: .manual)
         vm.toggleWeeklyConfirmation(idx: 4)

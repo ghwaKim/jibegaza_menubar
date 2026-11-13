@@ -177,6 +177,21 @@ struct EightHourFitTests {
         #expect(vm.weeklyFitMessages[4]?.contains("08:00") == true)
     }
 
+    @Test func changingPinsClearsOutdatedFitWarning() {
+        let vm = model()
+        vm.updateWeeklyEnd(idx: 4, value: "21:30")
+        vm.toggleWeeklyLock(idx: 4, field: .end)
+        vm.fitWeeklyDayToEightHours(idx: 4)
+        #expect(vm.weeklyFitMessages[4]?.contains("10:30") == true)
+        vm.toggleWeeklyLock(idx: 4, field: .end)
+        #expect(vm.weeklyFitMessages[4] == nil)
+        vm.toggleWeeklyLock(idx: 4, field: .start)
+        #expect(vm.canFitWeeklyDayToEightHours(idx: 4))
+        #expect(vm.weeklyFitMessages[4] == nil)
+        vm.fitWeeklyDayToEightHours(idx: 4)
+        #expect(getDailyMinutes(vm.weeklyData[4]) == 480)
+    }
+
     @Test func confirmedAnnualAndEmptyDaysCannotBeFitted() {
         let vm = model()
         #expect(!vm.canFitWeeklyDayToEightHours(idx: 4))

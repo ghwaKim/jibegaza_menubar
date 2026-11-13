@@ -510,12 +510,18 @@ final class TimeCalculatorViewModel: ObservableObject {
         case .end: guard !data[idx].end.isEmpty else { return }; data[idx].lockEnd.toggle()
         case .manual: guard !data[idx].manualHours.isEmpty || !data[idx].manualMinutes.isEmpty else { return }; data[idx].lockManual.toggle()
         }
+        weeklyFitMessages[idx] = nil
         var preferred = autoFillTarget == AutoFillTarget(idx: idx, type: field) && data[idx].isLocked(field) ? nil : autoFillTarget
         var excluded = excludedAutoFillIndexes
-        // Pinning one endpoint makes the unlocked endpoint the calculation target.
+        // Preserve an entered opposite time if the rest of the week cannot yet
+        // support reverse calculation. Empty endpoints can remain pending targets.
         if field != .manual, data[idx].isLocked(field), autoFillTarget == nil || autoFillTarget?.idx == idx {
             let opposite: AutoFillType = field == .start ? .end : .start
-            if !data[idx].isLocked(opposite) {
+            let oppositeIsEmpty = opposite == .start ? data[idx].start.isEmpty : data[idx].end.isEmpty
+            let othersComplete = data.enumerated().allSatisfy {
+                $0.offset == idx || WeeklyWorkCalculator.isCompleteWeeklyDay($0.element)
+            }
+            if !data[idx].isLocked(opposite), oppositeIsEmpty || othersComplete {
                 preferred = AutoFillTarget(idx: idx, type: opposite)
                 excluded.removeAll { $0 == idx }
             }
@@ -782,6 +788,9 @@ final class TimeCalculatorViewModel: ObservableObject {
             }
         }
         mutation(&newData[idx])
+        if newData[idx].mode == .range, newData[idx].leaveType == .none, !newData[idx].end.isEmpty {
+            newData[idx].end = minutesToTime(max(15 * 60 + 30, timeToMinutes(newData[idx].end)))
+        }
         weeklyFitMessages[idx] = nil
         newData[idx].importedFromFlex = false
 
