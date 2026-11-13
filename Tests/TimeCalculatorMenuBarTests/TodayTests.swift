@@ -68,6 +68,48 @@ struct TodayTests {
         #expect(vm.endTime == date(20))
     }
 
+    @Test func manualGoalCannotExceedNineHours() {
+        let vm = model(now: date(12))
+        vm.updateStartTime(date(9))
+        vm.updateTodayTargetSelection(.manual)
+        vm.updateTodayManualTargetMinutes("30")
+        #expect(vm.targetWorkMinutes == 510)
+        vm.updateTodayManualTargetHours("9")
+        #expect(vm.targetWorkMinutes == 540)
+        #expect(vm.targetInputMinutes == "00")
+        vm.updateTodayManualTargetMinutes("59")
+        #expect(vm.targetWorkMinutes == 540)
+        #expect(vm.targetInputMinutes == "00")
+        vm.updateTodayManualTargetHours("99")
+        #expect(vm.targetInputHours == "9")
+        #expect(vm.endTime == date(19))
+    }
+
+    @Test func timeEditsCapManualGoalWithoutTruncatingActualWork() {
+        let vm = model(now: date(22))
+        vm.updateStartTime(date(9))
+        vm.updateTodayTargetSelection(.manual)
+        vm.updateEndTime(date(22))
+        #expect(vm.startTime == date(9))
+        #expect(vm.endTime == date(22))
+        #expect(vm.targetWorkMinutes == 540)
+        #expect(vm.targetInputHours == "9")
+        #expect(vm.targetInputMinutes == "00")
+        #expect(vm.formattedWorkedToday.contains("12시간"))
+    }
+
+    @Test func savedOversizedManualGoalIsCappedOnLoad() {
+        let suite = "TodayTests.legacyGoal.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(600, forKey: "manualOverrideTargetMinutes")
+        defaults.set(true, forKey: "isManualTargetSelectionActive")
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: date(12))
+        #expect(vm.targetWorkMinutes == 540)
+        #expect(vm.targetInputHours == "9")
+        #expect(vm.targetInputMinutes == "00")
+    }
+
     @Test func manualTimeEditsKeepOppositeEndpoint() {
         let vm = model(now: date(12))
         vm.updateStartTime(date(9))
