@@ -19,6 +19,14 @@ spec.loader.exec_module(config_module)
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_header_and_shared_filename_labels(self):
+        self.assertEqual(config_module.display_label("1.3", "stable", "test"), "(Local beta)")
+        self.assertEqual(config_module.display_label("1.4", "testing", "test"), "(Local beta)")
+        self.assertEqual(config_module.display_label("1.4", "testing", "release"), "v1.4 (beta)")
+        self.assertEqual(config_module.display_label("1.5", "testing", "release"), "v1.5 (beta)")
+        self.assertEqual(config_module.display_label("1.4", "stable", "release"), "v1.4")
+
+
     def publish(self, channel, exists=False, status="true"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -31,13 +39,15 @@ class PublishReleaseTests(unittest.TestCase):
                     "CFBundleVersion": "5", "SUFeedURL": config["feed"],
                     "SUPublicEDKey": base64.b64encode(bytes(32)).decode(),
                     "JibegazaReleaseChannel": channel, "JibegazaReleaseTag": config["tag"],
-                    "JibegazaUpdateArchive": config["archive"]}
+                    "JibegazaUpdateArchive": config["archive"],
+                    "JibegazaDisplayVersion": config_module.display_label("1.4", channel, "release")}
             (root / "Resources/Info.plist").write_bytes(plistlib.dumps(info))
             output = root / "dist/updates/5"
             output.mkdir(parents=True)
             archive = output / config["archive"]
             with zipfile.ZipFile(archive, "w") as bundle:
                 bundle.writestr("Jibegaza MenuBar.app/Contents/Info.plist", plistlib.dumps(info))
+            shutil.copy(archive, root / "dist" / f"Jibegaza MenuBar {info['JibegazaDisplayVersion']}.zip")
             signature = base64.b64encode(bytes(64)).decode()
             (output / "appcast.xml").write_text(
                 '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>'
@@ -81,11 +91,12 @@ if sys.argv[1:3] == ["release", "view"]:
         result, commands = self.publish("testing", exists=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         uploads = [command for command in commands if command[:2] == ["release", "upload"]]
-        self.assertEqual(len(uploads), 2)
+        self.assertEqual(len(uploads), 3)
         self.assertTrue(uploads[0][3].endswith("-test-build5.zip"))
         self.assertNotIn("--clobber", uploads[0])
-        self.assertTrue(uploads[1][3].endswith("appcast.xml"))
-        self.assertIn("--clobber", uploads[1])
+        self.assertTrue(uploads[1][3].endswith("Jibegaza MenuBar v1.4 (beta).zip"))
+        self.assertTrue(uploads[2][3].endswith("appcast.xml"))
+        self.assertIn("--clobber", uploads[2])
 
     def test_testing_refuses_to_modify_a_non_prerelease(self):
         result, commands = self.publish("testing", exists=True, status="false")
@@ -97,5 +108,6 @@ if sys.argv[1:3] == ["release", "view"]:
         self.assertEqual(result.returncode, 0, result.stderr)
         create = next(command for command in commands if command[:2] == ["release", "create"])
         self.assertEqual(create[2], "v1.4")
+        self.assertTrue(any(value.endswith("Jibegaza MenuBar v1.4.zip") for value in create))
         self.assertNotIn("--prerelease", create)
         self.assertIn("--latest", commands[-1])

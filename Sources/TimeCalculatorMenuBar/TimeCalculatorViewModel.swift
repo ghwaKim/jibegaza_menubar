@@ -4,6 +4,8 @@ import SwiftUI
 
 @MainActor
 final class TimeCalculatorViewModel: ObservableObject {
+    @Published private(set) var recordedWeekStart: Date?
+    @Published private(set) var previousWeek: WeeklyArchive?
     @Published var selectedTab: WorkTab = .today
     @Published private(set) var isStartTimeFromFlex: Bool
     @Published private(set) var startTime: Date
@@ -20,7 +22,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     @Published private(set) var todayTargetGuideText: String?
     @Published private var currentTime: Date
 
-    private let defaults: UserDefaults
+    private let store: WorkStateStore
     private let calendar: Calendar
     private let fixedBreakMinutes = 60
     private var timerCancellable: AnyCancellable?
@@ -31,82 +33,114 @@ final class TimeCalculatorViewModel: ObservableObject {
     private var autoSuggestedTargetMinutes: Int?
     private var isManualTargetSelectionActive: Bool
 
-    private enum Keys {
-        static let startTime = "startTime"
-        static let isStartTimeFromFlex = "isStartTimeFromFlex"
-        static let endTime = "endTime"
-        static let targetWorkMinutes = "targetWorkMinutes"
-        static let baseTargetWorkMinutes = "baseTargetWorkMinutes"
-        static let manualOverrideTargetMinutes = "manualOverrideTargetMinutes"
-        static let isManualTargetSelectionActive = "isManualTargetSelectionActive"
-        static let lastEditedField = "lastEditedField"
-        static let menuBarDisplayMode = "menuBarDisplayMode"
-        static let lastActiveDayStart = "lastActiveDayStart"
-        static let isStartTimeUnset = "isStartTimeUnset"
-        static let isEndTimeUnset = "isEndTimeUnset"
-        static let weeklyData = "weeklyData"
-        static let autoFillTarget = "autoFillTarget"
-        static let excludedAutoFillIndexes = "excludedAutoFillIndexes"
-    }
-
-    private enum EditedField: String {
-        case startTime
-        case endTime
-    }
-
-    private var lastEditedField: EditedField {
-        didSet { defaults.set(lastEditedField.rawValue, forKey: Keys.lastEditedField) }
+    private var lastEditedField: TodayWorkCalculator.EditedField {
+        didSet { store.saveLastEditedField(lastEditedField) }
     }
 
     init(defaults: UserDefaults = .standard, now: Date = Date(), calendar: Calendar = .current) {
-        self.defaults = defaults
+        let store = WorkStateStore(defaults: defaults)
+        self.store = store
         self.calendar = calendar
+        let saved = store.load(now: now, calendar: calendar)
+        let today = saved.today
+        let hasRecords = saved.weeklyData.contains {
+            !$0.start.isEmpty || !$0.end.isEmpty || !$0.manualHours.isEmpty || !$0.manualMinutes.isEmpty
+                || $0.leaveType != .none || $0.isConfirmed
+        }
+        recordedWeekStart = store.recordedWeekStart ?? store.flexWeekStart
+            ?? (hasRecords ? nil : WorkWeek.start(for: now, calendar: calendar))
+        previousWeek = store.weeklyArchive
         currentTime = now
-        trackedDayStart = calendar.startOfDay(for: now)
-
-        let defaultStart = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: now) ?? now
-        let legacyTargetMinutes = defaults.object(forKey: Keys.targetWorkMinutes) as? Int ?? 8 * 60
-        let initialBaseTargetWorkMinutes = defaults.object(forKey: Keys.baseTargetWorkMinutes) as? Int ?? legacyTargetMinutes
-        let initialStartTime = defaults.object(forKey: Keys.startTime) as? Date ?? defaultStart
-        let savedEditedField = defaults.string(forKey: Keys.lastEditedField)
-        lastEditedField = EditedField(rawValue: savedEditedField ?? "") ?? .startTime
-
-        let initialEndTime = defaults.object(forKey: Keys.endTime) as? Date
-            ?? calendar.date(byAdding: .minute, value: initialBaseTargetWorkMinutes + fixedBreakMinutes, to: initialStartTime)
-            ?? initialStartTime
-
-        targetWorkMinutes = initialBaseTargetWorkMinutes
-        baseTargetWorkMinutes = initialBaseTargetWorkMinutes
-        startTime = initialStartTime
-        isStartTimeFromFlex = defaults.bool(forKey: Keys.isStartTimeFromFlex)
-        endTime = initialEndTime
-        menuBarDisplayMode = Self.loadMenuBarDisplayMode(from: defaults)
-        isStartTimeUnset = defaults.object(forKey: Keys.isStartTimeUnset) as? Bool ?? false
-        isEndTimeUnset = defaults.object(forKey: Keys.isEndTimeUnset) as? Bool ?? false
-        weeklyData = Self.loadWeeklyData(from: defaults)
+        trackedDayStart = today.dayStart
+        lastEditedField = saved.lastEditedField
+        targetWorkMinutes = today.targetWorkMinutes
+        baseTargetWorkMinutes = today.baseTargetWorkMinutes
+        startTime = today.startTime
+        endTime = today.endTime
+        isStartTimeFromFlex = today.isStartTimeFromFlex
+        menuBarDisplayMode = saved.menuBarDisplayMode
+        isStartTimeUnset = today.isStartTimeUnset
+        isEndTimeUnset = today.isEndTimeUnset
+        weeklyData = saved.weeklyData
         todayTargetMode = .preset
-        targetInputHours = String(initialBaseTargetWorkMinutes / 60)
-        targetInputMinutes = String(format: "%02d", initialBaseTargetWorkMinutes % 60)
+        targetInputHours = String(today.baseTargetWorkMinutes / 60)
+        targetInputMinutes = String(format: "%02d", today.baseTargetWorkMinutes % 60)
         todayTargetGuideText = nil
-        autoFillTarget = Self.loadAutoFillTarget(from: defaults)
-        excludedAutoFillIndexes = defaults.array(forKey: Keys.excludedAutoFillIndexes) as? [Int] ?? []
-        manualOverrideTargetMinutes = defaults.object(forKey: Keys.manualOverrideTargetMinutes) as? Int
-        isManualTargetSelectionActive = defaults.object(forKey: Keys.isManualTargetSelectionActive) as? Bool ?? false
+        autoFillTarget = saved.autoFillTarget
+        excludedAutoFillIndexes = saved.excludedAutoFillIndexes
+        manualOverrideTargetMinutes = today.manualOverrideTargetMinutes
+        isManualTargetSelectionActive = today.isManualTargetSelectionActive
         autoSuggestedTargetMinutes = nil
+        store.recordedWeekStart = recordedWeekStart
 
-        if let target = autoFillTarget, !isValidAutoFillTarget(data: weeklyData, target: target) {
+        if let target = autoFillTarget, !WeeklyWorkCalculator.isValidAutoFillTarget(data: weeklyData, target: target) {
             autoFillTarget = nil
-            defaults.removeObject(forKey: Keys.autoFillTarget)
+            store.clearAutoFillTarget()
         }
 
         if shouldResetForNewDay(referenceDate: now) {
             resetTodayForNewDay(referenceDate: now)
         } else {
-            defaults.set(trackedDayStart, forKey: Keys.lastActiveDayStart)
+            store.lastActiveDayStart = trackedDayStart
         }
 
         refreshTodayTargetFromCurrentContext(syncInputFields: true)
         startTimer()
+    }
+
+    var isCurrentWorkWeek: Bool {
+        recordedWeekStart == WorkWeek.start(for: currentTime, calendar: calendar)
+    }
+
+    var weeklyDateRange: String {
+        guard let start = recordedWeekStart else { return "주차 미확인" }
+        return weekLabel(start)
+    }
+
+    private func weekLabel(_ start: Date) -> String {
+        let end = calendar.date(byAdding: .day, value: 4, to: start)!
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy년 M월 d일"
+        let first = formatter.string(from: start)
+        formatter.dateFormat = calendar.component(.year, from: start) == calendar.component(.year, from: end)
+            ? "M월 d일" : "yyyy년 M월 d일"
+        return first + "~" + formatter.string(from: end)
+    }
+
+    func weeklyDayTitle(at index: Int) -> String {
+        guard let start = recordedWeekStart,
+              let date = calendar.date(byAdding: .day, value: index, to: start) else { return weekDays[index] }
+        return weekDays[index] + " \(calendar.component(.month, from: date))/\(calendar.component(.day, from: date))"
+    }
+
+    var weekChangeNotice: String? {
+        guard !isCurrentWorkWeek else { return nil }
+        return recordedWeekStart == nil
+            ? "기존 기록의 주차를 확인할 수 없습니다. 오늘 목표 자동 계산에는 사용하지 않습니다."
+            : "이전 주 기록이 남아 있습니다. 오늘 목표 자동 계산에는 사용하지 않습니다."
+    }
+
+    var previousWeekTitle: String {
+        previousWeek?.weekStart.map(weekLabel) ?? "주차 미확인 기록"
+    }
+
+    func archiveAndStartCurrentWeek() {
+        archiveCurrentWeek()
+        resetWeeklyState()
+    }
+
+    private func archiveCurrentWeek() {
+        guard weeklyData.contains(where: {
+            !$0.start.isEmpty || !$0.end.isEmpty || !$0.manualHours.isEmpty || !$0.manualMinutes.isEmpty
+                || $0.leaveType != .none || $0.isConfirmed
+        }) else { return }
+        let archive = WeeklyArchive(weekStart: recordedWeekStart, savedAt: currentTime,
+            data: weeklyData, target: autoFillTarget, excludedIndexes: excludedAutoFillIndexes,
+            flexAccountID: store.flexAccountID)
+        store.weeklyArchive = archive
+        previousWeek = archive
     }
 
     var menuBarTitle: String {
@@ -179,14 +213,9 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private var appliesCoreTime: Bool {
+        if recordedWeekStart != nil && !isCurrentWorkWeek { return true }
         guard let index = currentWeekdayIndex else { return false }
         return weeklyData[index].leaveType == .none
-    }
-
-    private func isCompleteWeeklyDay(_ day: DayWorkData) -> Bool {
-        if day.leaveType == .annual { return true }
-        if day.mode == .manual { return !day.manualHours.isEmpty || !day.manualMinutes.isEmpty }
-        return !day.start.isEmpty && !day.end.isEmpty && timeToMinutes(day.end) >= timeToMinutes(day.start)
     }
 
     func isWeeklyAutoCalculated(at index: Int) -> Bool {
@@ -194,36 +223,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     var weeklyCalculationNotice: String? {
-        guard let target = autoFillTarget else {
-            if weeklyData.contains(where: { $0.isConfirmed || $0.lockStart || $0.lockEnd || $0.lockManual }),
-               weeklyData.allSatisfy(isCompleteWeeklyDay), weeklyWorkedMinutes < weeklyGoalMinutes {
-                return "주 40시간까지 " + formatMinutesToKorean(weeklyGoalMinutes - weeklyWorkedMinutes) + " 부족합니다. 고정된 값은 유지됩니다. 수정하려면 잠금을 해제해주세요."
-            }
-            return nil
-        }
-        let othersComplete = weeklyData.enumerated().allSatisfy { index, day in
-            index == target.idx || isCompleteWeeklyDay(day)
-        }
-        guard othersComplete else { return "자동 계산하려면 다른 요일의 근무시간을 모두 입력해주세요." }
-        let day = weeklyData[target.idx]
-        var reasons: [String] = []
-        let otherTotal = weeklyData.enumerated().reduce(0) { $0 + ($1.offset == target.idx ? 0 : getDailyMinutes($1.element)) }
-        if weeklyGoalMinutes - otherTotal > maxDailyMinutes { reasons.append("일 최대 인정시간 9시간") }
-        if day.mode == .range {
-            if target.type == .start && timeToMinutes(day.start) == earliestStartMinutes { reasons.append("출근 하한 08:00") }
-            if day.leaveType == .none { reasons.append("정상근무 코어타임 10:30~15:30") }
-            if timeToMinutes(day.end) == 1439 { reasons.append("당일 종료 한도 23:59") }
-        }
-        let total = weeklyWorkedMinutes
-        let violatesCoreEnd = day.mode == .range && day.leaveType == .none && timeToMinutes(day.end) < 15 * 60 + 30
-        if violatesCoreEnd {
-            let balance = total == weeklyGoalMinutes ? "합계는 40시간이지만" : "주 40시간 대비 " + formatMinutesToKorean(abs(weeklyGoalMinutes - total)) + (total < weeklyGoalMinutes ? " 부족합니다." : " 초과합니다.")
-            return balance + " 정상근무 퇴근은 15:30 이후여야 합니다. 입력한 퇴근 시각을 조정해주세요."
-        }
-        guard total != weeklyGoalMinutes else { return nil }
-        let difference = formatMinutesToKorean(abs(weeklyGoalMinutes - total))
-        let reason = reasons.isEmpty ? "입력한 시각과 휴가 인정시간" : reasons.joined(separator: " · ")
-        return "주 40시간 대비 \(difference) \(total < weeklyGoalMinutes ? "부족" : "초과") · \(reason) 반영. 입력값을 조정해주세요."
+        WeeklyWorkCalculator.notice(data: weeklyData, target: autoFillTarget)
     }
 
     var weekTotalText: String {
@@ -449,8 +449,10 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func resetWeeklyState() {
-        defaults.set(flexWeekStart(for: currentTime), forKey: "flex.weekStart")
-        defaults.removeObject(forKey: "flex.accountID")
+        recordedWeekStart = WorkWeek.start(for: currentTime, calendar: calendar)
+        store.recordedWeekStart = recordedWeekStart
+        store.flexWeekStart = WorkWeek.start(for: currentTime, calendar: calendar)
+        store.flexAccountID = nil
         weeklyData = defaultWeekData()
         autoFillTarget = nil
         excludedAutoFillIndexes = []
@@ -479,18 +481,18 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func toggleWeeklyConfirmation(idx: Int) {
-        guard weeklyData[idx].isConfirmed || isCompleteWeeklyDay(weeklyData[idx]) else { return }
+        guard weeklyData[idx].isConfirmed || WeeklyWorkCalculator.isCompleteWeeklyDay(weeklyData[idx]) else { return }
         var data = weeklyData
         data[idx].isConfirmed.toggle()
         data[idx].isFlexAutoLocked = false
         let preferred = autoFillTarget?.idx == idx && data[idx].isConfirmed ? nil : autoFillTarget
-        let result = applyAutoFill(data: data, preferredTarget: preferred,
+        let result = WeeklyWorkCalculator.applyAutoFill(data: data, preferredTarget: preferred,
                                   excludedIndexes: excludedAutoFillIndexes, allowPreferredOverride: true)
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excludedAutoFillIndexes)
     }
 
     func canConfirmWeeklyDay(at index: Int) -> Bool {
-        weeklyData[index].isConfirmed || isCompleteWeeklyDay(weeklyData[index])
+        weeklyData[index].isConfirmed || WeeklyWorkCalculator.isCompleteWeeklyDay(weeklyData[index])
     }
 
     func toggleWeeklyLock(idx: Int, field: AutoFillType) {
@@ -516,7 +518,7 @@ final class TimeCalculatorViewModel: ObservableObject {
                 excluded.removeAll { $0 == idx }
             }
         }
-        let result = applyAutoFill(data: data, preferredTarget: preferred,
+        let result = WeeklyWorkCalculator.applyAutoFill(data: data, preferredTarget: preferred,
                                   excludedIndexes: excluded, allowPreferredOverride: true)
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
     }
@@ -553,19 +555,30 @@ final class TimeCalculatorViewModel: ObservableObject {
         updateWeeklyInput(idx: idx, field: .manual) { $0.manualMinutes = sanitizeNumberString(value) }
     }
 
+    private func autoFillExclusionsAfterEditing(_ data: [DayWorkData], editedIndex: Int? = nil) -> [Int] {
+        excludedAutoFillIndexes.filter { index in
+            guard data.indices.contains(index), index != editedIndex else { return false }
+            let day = data[index]
+            // Reset suppresses immediate refilling, not future reverse calculations.
+            // Keep exclusions for partially filled fields explicitly made manual.
+            return !day.start.isEmpty || !day.end.isEmpty
+                || !day.manualHours.isEmpty || !day.manualMinutes.isEmpty
+        }
+    }
+
     private func updateWeeklyInput(idx: Int, field: AutoFillType, mutation: (inout DayWorkData) -> Void) {
         guard !weeklyData[idx].isLocked(field) else { return }
         var data = weeklyData
         mutation(&data[idx])
         data[idx].importedFromFlex = false
-        var excluded = excludedAutoFillIndexes.filter { $0 != idx }
+        var excluded = autoFillExclusionsAfterEditing(data, editedIndex: idx)
         var preferred = autoFillTarget
         // Editing an automatically calculated field explicitly makes it manual.
         if preferred == AutoFillTarget(idx: idx, type: field) {
             preferred = nil
             excluded.append(idx)
         }
-        let result = applyAutoFill(data: data, preferredTarget: preferred,
+        let result = WeeklyWorkCalculator.applyAutoFill(data: data, preferredTarget: preferred,
                                    excludedIndexes: excluded, allowPreferredOverride: true)
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
     }
@@ -585,7 +598,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
         let nextExcluded = Array(Set(excludedAutoFillIndexes + [idx])).sorted()
         let preferred = autoFillTarget?.idx == idx ? nil : autoFillTarget
-        let result = applyAutoFill(data: newData, preferredTarget: preferred,
+        let result = WeeklyWorkCalculator.applyAutoFill(data: newData, preferredTarget: preferred,
                                    excludedIndexes: nextExcluded, allowPreferredOverride: true)
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
     }
@@ -618,7 +631,7 @@ final class TimeCalculatorViewModel: ObservableObject {
             )
         }
 
-        let result = applyAutoFill(
+        let result = WeeklyWorkCalculator.applyAutoFill(
             data: newData,
             preferredTarget: autoFillTarget,
             excludedIndexes: excludedAutoFillIndexes,
@@ -636,12 +649,7 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     private func setMenuBarDisplayMode(_ mode: MenuBarDisplayMode?) {
         menuBarDisplayMode = mode
-        let encoder = JSONEncoder()
-        if let mode, let data = try? encoder.encode(mode) {
-            defaults.set(data, forKey: Keys.menuBarDisplayMode)
-        } else {
-            defaults.removeObject(forKey: Keys.menuBarDisplayMode)
-        }
+        store.saveMenuBarMode(mode)
     }
 
     private func reactivateTodayInputs() {
@@ -652,7 +660,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func shouldResetForNewDay(referenceDate: Date) -> Bool {
-        guard let savedDayStart = defaults.object(forKey: Keys.lastActiveDayStart) as? Date else {
+        guard let savedDayStart = store.lastActiveDayStart else {
             return false
         }
         return !calendar.isDate(savedDayStart, inSameDayAs: referenceDate)
@@ -669,7 +677,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         lastEditedField = .startTime
         manualOverrideTargetMinutes = nil
         isManualTargetSelectionActive = false
-        defaults.set(trackedDayStart, forKey: Keys.lastActiveDayStart)
+        store.lastActiveDayStart = trackedDayStart
         refreshTodayTargetFromCurrentContext(syncInputFields: true)
         persistTodayState()
     }
@@ -680,47 +688,29 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
     }
 
+    private var todayCalculator: TodayWorkCalculator { TodayWorkCalculator(calendar: calendar) }
+
     private func constrainedStart(_ date: Date) -> Date {
-        let earliest = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: date) ?? date
-        return max(date, earliest)
+        todayCalculator.constrainedStart(date)
     }
 
     private func constrainedEnd(_ date: Date) -> Date {
-        guard appliesCoreTime else { return date }
-        let earliest = calendar.date(bySettingHour: 15, minute: 30, second: 0, of: date) ?? date
-        return max(date, earliest)
+        todayCalculator.constrainedEnd(date, appliesCoreTime: appliesCoreTime)
+    }
+
+    private func alignTimesUsingLastEditedField() {
+        let times = todayCalculator.alignedTimes(start: startTime, end: endTime,
+            targetWorkMinutes: targetWorkMinutes, lastEditedField: lastEditedField, appliesCoreTime: appliesCoreTime)
+        startTime = times.start
+        endTime = times.end
     }
 
     private func syncManualTargetFromTimes() {
-        let minutes = max(0, Int(endTime.timeIntervalSince(startTime) / 60)
-            - overlapMinutes(firstStart: startTime, firstEnd: endTime,
-                             secondStart: fixedBreakStart, secondEnd: fixedBreakEnd))
+        let minutes = todayCalculator.workMinutes(start: startTime, end: endTime)
         manualOverrideTargetMinutes = minutes
         targetWorkMinutes = minutes
         todayTargetMode = .manualOverride
         syncTodayTargetInputs(with: minutes)
-    }
-
-    private func alignTimesUsingLastEditedField() {
-        startTime = constrainedStart(startTime)
-        switch lastEditedField {
-        case .startTime:
-            let minutes = calendar.component(.hour, from: startTime) * 60 + calendar.component(.minute, from: startTime)
-            let result = calculateReverseTime(baseTimeMinutes: minutes, targetMinutes: targetWorkMinutes, type: .end)
-            endTime = constrainedEnd(addingMinutes(result - minutes, to: startTime))
-        case .endTime:
-            endTime = constrainedEnd(endTime)
-            let minutes = calendar.component(.hour, from: endTime) * 60 + calendar.component(.minute, from: endTime)
-            var result = calculateReverseTime(baseTimeMinutes: minutes, targetMinutes: targetWorkMinutes, type: .start)
-            if appliesCoreTime { result = min(result, 10 * 60 + 30) }
-            if result < earliestStartMinutes {
-                startTime = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: endTime) ?? endTime
-                let endMinutes = calculateReverseTime(baseTimeMinutes: earliestStartMinutes, targetMinutes: targetWorkMinutes, type: .end)
-                endTime = constrainedEnd(addingMinutes(endMinutes - earliestStartMinutes, to: startTime))
-            } else {
-                startTime = addingMinutes(result - minutes, to: endTime)
-            }
-        }
     }
 
     private func addingMinutes(_ minutes: Int, to date: Date) -> Date {
@@ -728,19 +718,8 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private var workedMinutesToday: Int {
-        if isStartTimeUnset || isEndTimeUnset || currentTime <= startTime {
-            return 0
-        }
-
-        let effectiveEnd = currentTime
-        let rawWorked = max(0, Int(effectiveEnd.timeIntervalSince(startTime) / 60))
-        let breakOverlap = overlapMinutes(
-            firstStart: startTime,
-            firstEnd: effectiveEnd,
-            secondStart: fixedBreakStart,
-            secondEnd: fixedBreakEnd
-        )
-        return max(0, rawWorked - breakOverlap)
+        guard !isStartTimeUnset, !isEndTimeUnset, currentTime > startTime else { return 0 }
+        return todayCalculator.workMinutes(start: startTime, end: currentTime)
     }
 
     private var recognizedWorkedMinutesToday: Int {
@@ -757,21 +736,6 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     private var weeklyRemainingMinutes: Int {
         max(0, weeklyGoalMinutes - weeklyWorkedMinutes)
-    }
-
-    private var fixedBreakStart: Date {
-        calendar.date(bySettingHour: 12, minute: 30, second: 0, of: startTime) ?? startTime
-    }
-
-    private var fixedBreakEnd: Date {
-        calendar.date(bySettingHour: 13, minute: 30, second: 0, of: startTime) ?? startTime
-    }
-
-    private func overlapMinutes(firstStart: Date, firstEnd: Date, secondStart: Date, secondEnd: Date) -> Int {
-        let overlapStart = max(firstStart, secondStart)
-        let overlapEnd = min(firstEnd, secondEnd)
-        guard overlapEnd > overlapStart else { return 0 }
-        return Int(overlapEnd.timeIntervalSince(overlapStart) / 60)
     }
 
     private func signedCompactDuration(_ minutes: Int) -> String {
@@ -801,59 +765,16 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func persistTodayState() {
-        defaults.set(startTime, forKey: Keys.startTime)
-        defaults.set(isStartTimeFromFlex, forKey: Keys.isStartTimeFromFlex)
-        defaults.set(endTime, forKey: Keys.endTime)
-        defaults.set(targetWorkMinutes, forKey: Keys.targetWorkMinutes)
-        defaults.set(baseTargetWorkMinutes, forKey: Keys.baseTargetWorkMinutes)
-        if let manualOverrideTargetMinutes {
-            defaults.set(manualOverrideTargetMinutes, forKey: Keys.manualOverrideTargetMinutes)
-        } else {
-            defaults.removeObject(forKey: Keys.manualOverrideTargetMinutes)
-        }
-        defaults.set(isManualTargetSelectionActive, forKey: Keys.isManualTargetSelectionActive)
-        defaults.set(isStartTimeUnset, forKey: Keys.isStartTimeUnset)
-        defaults.set(isEndTimeUnset, forKey: Keys.isEndTimeUnset)
-        defaults.set(calendar.startOfDay(for: currentTime), forKey: Keys.lastActiveDayStart)
+        store.saveToday(.init(startTime: startTime, endTime: endTime,
+            isStartTimeFromFlex: isStartTimeFromFlex, targetWorkMinutes: targetWorkMinutes,
+            baseTargetWorkMinutes: baseTargetWorkMinutes, manualOverrideTargetMinutes: manualOverrideTargetMinutes,
+            isManualTargetSelectionActive: isManualTargetSelectionActive,
+            isStartTimeUnset: isStartTimeUnset, isEndTimeUnset: isEndTimeUnset,
+            dayStart: calendar.startOfDay(for: currentTime)))
     }
 
     private func persistWeeklyState() {
-        let encoder = JSONEncoder()
-        if let data = try? encoder.encode(weeklyData) {
-            defaults.set(data, forKey: Keys.weeklyData)
-        }
-        if let target = autoFillTarget, let data = try? encoder.encode(target) {
-            defaults.set(data, forKey: Keys.autoFillTarget)
-        } else {
-            defaults.removeObject(forKey: Keys.autoFillTarget)
-        }
-        defaults.set(excludedAutoFillIndexes, forKey: Keys.excludedAutoFillIndexes)
-    }
-
-    private static func loadMenuBarDisplayMode(from defaults: UserDefaults) -> MenuBarDisplayMode? {
-        guard let data = defaults.data(forKey: Keys.menuBarDisplayMode) else {
-            return nil
-        }
-        guard let decoded = try? JSONDecoder().decode(MenuBarDisplayMode.self, from: data) else {
-            return nil
-        }
-        return MenuBarDisplayMode(metric: decoded.metric)
-    }
-
-    private static func loadWeeklyData(from defaults: UserDefaults) -> [DayWorkData] {
-        guard let data = defaults.data(forKey: Keys.weeklyData),
-              let decoded = try? JSONDecoder().decode([DayWorkData].self, from: data),
-              decoded.count == weekDays.count else {
-            return defaultWeekData()
-        }
-        return decoded
-    }
-
-    private static func loadAutoFillTarget(from defaults: UserDefaults) -> AutoFillTarget? {
-        guard let data = defaults.data(forKey: Keys.autoFillTarget) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(AutoFillTarget.self, from: data)
+        store.saveWeekly(data: weeklyData, target: autoFillTarget, excluded: excludedAutoFillIndexes)
     }
 
     private func handleWeeklyUpdate(
@@ -872,10 +793,10 @@ final class TimeCalculatorViewModel: ObservableObject {
         mutation(&newData[idx])
         newData[idx].importedFromFlex = false
 
-        let nextExcluded = excludedAutoFillIndexes
+        let nextExcluded = autoFillExclusionsAfterEditing(newData)
         let preferredTarget = autoFillTarget?.idx == idx ? nil : autoFillTarget
         let shouldKeepPreferredTarget = preferredTarget != nil
-        let result = applyAutoFill(
+        let result = WeeklyWorkCalculator.applyAutoFill(
             data: newData,
             preferredTarget: preferredTarget,
             excludedIndexes: nextExcluded,
@@ -884,77 +805,28 @@ final class TimeCalculatorViewModel: ObservableObject {
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
     }
 
-    private func flexWeekStart(for date: Date) -> Date {
-        let today = calendar.startOfDay(for: date)
-        let offset = (calendar.component(.weekday, from: today) + 5) % 7
-        return calendar.date(byAdding: .day, value: -offset, to: today)!
-    }
-
     func importFlexRecords(_ records: [FlexWorkRecord], now: Date = Date(), automatic: Bool = false) -> String {
-        let week = flexWeekStart(for: now)
-        func hasInput(_ day: DayWorkData) -> Bool {
-            !day.start.isEmpty || !day.end.isEmpty || !day.manualHours.isEmpty ||
-            !day.manualMinutes.isEmpty || day.leaveType != .none || day.isConfirmed ||
-            day.lockStart || day.lockEnd || day.lockManual
+        let imported = FlexImportPolicy.apply(records, to: weeklyData,
+            savedWeek: store.recordedWeekStart ?? store.flexWeekStart, savedAccount: store.flexAccountID,
+            now: now, automatic: automatic, calendar: calendar)
+        switch imported {
+        case .unchanged(let message):
+            return message
+        case let .applied(data, week, account, startsNewWeek, message):
+            if startsNewWeek { archiveCurrentWeek() }
+            recordedWeekStart = week
+            store.recordedWeekStart = week
+            store.flexWeekStart = week
+            if let account { store.flexAccountID = account }
+            let excluded = startsNewWeek ? [] : excludedAutoFillIndexes
+            let target = (startsNewWeek ? nil : autoFillTarget).flatMap {
+                WeeklyWorkCalculator.isValidAutoFillTarget(data: data, target: $0) ? $0 : nil
+            }
+            let result = WeeklyWorkCalculator.applyAutoFill(data: data, preferredTarget: target,
+                excludedIndexes: excluded, allowPreferredOverride: true)
+            commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
+            return message
         }
-        let accounts = Set(records.compactMap(\.accountID))
-        guard accounts.count <= 1 else { return "서로 다른 flex 계정의 기록입니다." }
-        let occupied = weeklyData.filter(hasInput)
-        let hasExisting = !occupied.isEmpty
-        let savedWeek = defaults.object(forKey: "flex.weekStart") as? Date
-        let canStartNewWeek = automatic && (savedWeek.map { $0 < week } ?? false) &&
-            occupied.allSatisfy {
-                $0.importedFromFlex && (!$0.isConfirmed || $0.isFlexAutoLocked) &&
-                    !$0.lockStart && !$0.lockEnd && !$0.lockManual
-            } &&
-            accounts.first != nil && accounts.first == defaults.string(forKey: "flex.accountID")
-        guard !hasExisting || savedWeek == nil || savedWeek == week || canStartNewWeek else {
-            return "기존 기록의 주차를 확인해주세요. 주간 Reset 후 이번 주 기록을 가져올 수 있어요."
-        }
-        if let saved = defaults.string(forKey: "flex.accountID"),
-           let incoming = accounts.first, hasExisting, saved != incoming {
-            return "다른 flex 계정의 기록이 있습니다. 주간 Reset 후 다시 가져와주세요."
-        }
-        var data = canStartNewWeek ? defaultWeekData() : weeklyData
-        var count = 0
-        // Reject duplicate dates rather than picking an arbitrary record.
-        let grouped = Dictionary(grouping: records, by: { calendar.startOfDay(for: $0.date) })
-        for (_, values) in grouped {
-            guard values.count == 1, let record = values.first,
-                  (0...24 * 60).contains(record.minutes),
-                  let index = FlexImportScope.index(for: record.date, now: now, calendar: calendar, includeToday: automatic) else { continue }
-            let day = data[index]
-            guard !day.isConfirmed || day.isFlexAutoLocked else { continue }
-            guard !day.lockStart, !day.lockEnd, !day.lockManual,
-                  day.leaveType == .none else { continue }
-            let hours = String(record.minutes / 60)
-            let minutes = String(record.minutes % 60)
-            if day.importedFromFlex, day.mode == .manual,
-               day.manualHours == hours, day.manualMinutes == minutes,
-               day.start.isEmpty, day.end.isEmpty, day.isFlexAutoLocked { continue }
-            data[index].mode = .manual
-            data[index].start = ""
-            data[index].end = ""
-            data[index].manualHours = hours
-            data[index].manualMinutes = minutes
-            data[index].isConfirmed = true
-            data[index].isFlexAutoLocked = true
-            data[index].importedFromFlex = true
-            count += 1
-        }
-        guard count > 0 else { return "변경할 기록이 없어요. 잠금·고정·휴가가 있는 날짜는 건너뛰어요." }
-        defaults.set(week, forKey: "flex.weekStart")
-        if let account = accounts.first { defaults.set(account, forKey: "flex.accountID") }
-        let excluded = canStartNewWeek ? [] : excludedAutoFillIndexes
-        let target = (canStartNewWeek ? nil : autoFillTarget).flatMap {
-            isValidAutoFillTarget(data: data, target: $0) ? $0 : nil
-        }
-        let result = applyAutoFill(data: data, preferredTarget: target,
-                                   excludedIndexes: excluded, allowPreferredOverride: true)
-        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
-        let skipped = records.count - count
-        return skipped == 0 ? "이번 주 flex 기록 \(count)일을 반영했어요." :
-            "이번 주 flex 기록 \(count)일을 반영했어요. 변경이 없거나 잠금·고정·휴가 등이 있는 \(skipped)일은 건너뛰었어요."
     }
 
     private func commitWeeklyState(data: [DayWorkData], target: AutoFillTarget?, excludedIndexes: [Int]) {
@@ -963,130 +835,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         excludedAutoFillIndexes = excludedIndexes
         refreshTodayTargetFromCurrentContext(syncInputFields: manualOverrideTargetMinutes == nil)
         persistWeeklyState()
-    }
-
-    private func isValidAutoFillTarget(data: [DayWorkData], target: AutoFillTarget?) -> Bool {
-        guard let target, data.indices.contains(target.idx) else {
-            return false
-        }
-
-        let day = data[target.idx]
-        if day.leaveType == .annual || day.importedFromFlex || day.isLocked(target.type) {
-            return false
-        }
-
-        switch target.type {
-        case .manual:
-            return day.mode == .manual
-        case .end:
-            return day.mode == .range && !day.start.isEmpty
-        case .start:
-            return day.mode == .range && !day.end.isEmpty
-        }
-    }
-
-    private func isSameAutoFillTarget(_ lhs: AutoFillTarget?, _ rhs: AutoFillTarget?) -> Bool {
-        lhs == rhs
-    }
-
-    private func autoFillCandidates(data: [DayWorkData], excludedIndexes: [Int] = []) -> [AutoFillTarget] {
-        data.enumerated().flatMap { idx, day -> [AutoFillTarget] in
-            if excludedIndexes.contains(idx) || day.leaveType == .annual || day.isConfirmed {
-                return []
-            }
-
-            if day.mode == .manual {
-                let hasManualInput = !day.manualHours.isEmpty || !day.manualMinutes.isEmpty
-                if !hasManualInput && !day.lockManual {
-                    return [AutoFillTarget(idx: idx, type: .manual)]
-                }
-                return []
-            }
-
-            if !day.start.isEmpty && day.end.isEmpty && !day.lockEnd {
-                return [AutoFillTarget(idx: idx, type: .end)]
-            }
-
-            if !day.end.isEmpty && day.start.isEmpty && !day.lockStart {
-                return [AutoFillTarget(idx: idx, type: .start)]
-            }
-
-            return []
-        }
-    }
-
-    private func inferAutoFillTarget(data: [DayWorkData], excludedIndexes: [Int] = []) -> AutoFillTarget? {
-        let candidates = autoFillCandidates(data: data, excludedIndexes: excludedIndexes)
-        return candidates.count == 1 ? candidates[0] : nil
-    }
-
-    private func applyAutoFill(
-        data: [DayWorkData],
-        preferredTarget: AutoFillTarget?,
-        excludedIndexes: [Int] = [],
-        allowPreferredOverride: Bool = false
-    ) -> (nextData: [DayWorkData], nextTarget: AutoFillTarget?) {
-        let inferredTarget = inferAutoFillTarget(data: data, excludedIndexes: excludedIndexes)
-        let resolvedTarget: AutoFillTarget?
-
-        if let preferredTarget,
-           isValidAutoFillTarget(data: data, target: preferredTarget),
-           !excludedIndexes.contains(preferredTarget.idx),
-           (allowPreferredOverride || isSameAutoFillTarget(preferredTarget, inferredTarget)) {
-            resolvedTarget = preferredTarget
-        } else {
-            resolvedTarget = inferredTarget
-        }
-
-        guard let resolvedTarget else {
-            return (data, nil)
-        }
-        guard data.enumerated().allSatisfy({ index, day in
-            index == resolvedTarget.idx || isCompleteWeeklyDay(day)
-        }) else {
-            var pendingData = data
-            switch resolvedTarget.type {
-            case .manual: pendingData[resolvedTarget.idx].manualHours = ""; pendingData[resolvedTarget.idx].manualMinutes = ""
-            case .start: pendingData[resolvedTarget.idx].start = ""
-            case .end: pendingData[resolvedTarget.idx].end = ""
-            }
-            return (pendingData, resolvedTarget)
-        }
-
-        var nextData = data
-        let otherTotal = nextData.enumerated().reduce(0) { partial, item in
-            item.offset == resolvedTarget.idx ? partial : partial + getDailyMinutes(item.element)
-        }
-
-        let targetRecognizedMinutes = weeklyGoalMinutes - otherTotal
-        let leaveCreditMinutes = getLeaveCreditMinutes(nextData[resolvedTarget.idx])
-        let targetWorkMinutes = clampWorkMinutesForDay(
-            nextData[resolvedTarget.idx],
-            workMinutes: targetRecognizedMinutes - leaveCreditMinutes
-        )
-
-        let day = nextData[resolvedTarget.idx]
-        switch resolvedTarget.type {
-        case .manual:
-            nextData[resolvedTarget.idx].manualHours = String(targetWorkMinutes / 60)
-            nextData[resolvedTarget.idx].manualMinutes = String(targetWorkMinutes % 60)
-        case .end:
-            let start = max(earliestStartMinutes, timeToMinutes(day.start))
-            var end = calculateReverseTime(baseTimeMinutes: start, targetMinutes: targetWorkMinutes, type: .end)
-            if day.leaveType == .none { end = max(end, 15 * 60 + 30) }
-            nextData[resolvedTarget.idx].end = minutesToTime(end)
-        case .start:
-            var start = calculateReverseTime(baseTimeMinutes: timeToMinutes(day.end), targetMinutes: targetWorkMinutes, type: .start)
-            if day.leaveType == .none { start = min(start, 10 * 60 + 30) }
-            nextData[resolvedTarget.idx].start = minutesToTime(max(earliestStartMinutes, start))
-        }
-        return (nextData, resolvedTarget)
-    }
-
-    private enum TodayAutoSuggestionState {
-        case unavailable
-        case blocked(String)
-        case suggested(Int)
     }
 
     private func applyTodayManualTargetFromInputs() {
@@ -1122,7 +870,9 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func refreshTodayTargetFromCurrentContext(syncInputFields: Bool) {
-        let autoSuggestionState = resolveTodayAutoSuggestionState()
+        let autoSuggestionState: TodayTargetSuggestion.State = isCurrentWorkWeek
+            ? TodayTargetSuggestion(weeklyData: weeklyData, currentTime: currentTime, calendar: calendar).resolve()
+            : .unavailable
 
         switch autoSuggestionState {
         case .suggested(let minutes):
@@ -1158,7 +908,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
     }
 
-    private func resolveTodayTargetGuideText(autoSuggestionState: TodayAutoSuggestionState) -> String? {
+    private func resolveTodayTargetGuideText(autoSuggestionState: TodayTargetSuggestion.State) -> String? {
         switch todayTargetMode {
         case .manualOverride:
             if autoSuggestedTargetMinutes != nil {
@@ -1172,22 +922,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         }
     }
 
-    private func resolveTodayAutoSuggestionState() -> TodayAutoSuggestionState {
-        guard let todayIndex = currentWeekdayIndex else {
-            return .unavailable
-        }
-
-        guard lastActualWorkingDayIndex == todayIndex else {
-            return .unavailable
-        }
-
-        guard let validationMessage = weeklyAutoSuggestionBlockingMessage(excluding: todayIndex) else {
-            return suggestedTargetMinutes(for: todayIndex).map(TodayAutoSuggestionState.suggested) ?? .unavailable
-        }
-
-        return .blocked(validationMessage)
-    }
-
     private var currentWeekdayIndex: Int? {
         let weekday = calendar.component(.weekday, from: currentTime)
         switch weekday {
@@ -1196,70 +930,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         default:
             return nil
         }
-    }
-
-    private var lastActualWorkingDayIndex: Int? {
-        weeklyData.lastIndex { $0.leaveType != .annual }
-    }
-
-    private func weeklyAutoSuggestionBlockingMessage(excluding todayIndex: Int) -> String? {
-        for idx in weeklyData.indices where idx != todayIndex {
-            if isWeeklyDayIncompleteForAutoSuggestion(weeklyData[idx]) {
-                return "자동 목표시간을 계산하려면 오늘을 제외한 이번 주 근무시간을 입력해주세요."
-            }
-        }
-        return nil
-    }
-
-    private func isWeeklyDayIncompleteForAutoSuggestion(_ day: DayWorkData) -> Bool {
-        switch day.leaveType {
-        case .annual:
-            return false
-        case .half:
-            return isIncompleteHalfDay(day)
-        case .halfHalf, .none:
-            return isIncompleteRequiredWorkDay(day)
-        }
-    }
-
-    private func isIncompleteHalfDay(_ day: DayWorkData) -> Bool {
-        if day.mode == .manual {
-            return false
-        }
-
-        let hasStart = !day.start.isEmpty
-        let hasEnd = !day.end.isEmpty
-        return hasStart != hasEnd
-    }
-
-    private func isIncompleteRequiredWorkDay(_ day: DayWorkData) -> Bool {
-        if day.mode == .manual {
-            return day.manualHours.isEmpty && day.manualMinutes.isEmpty
-        }
-
-        let hasStart = !day.start.isEmpty
-        let hasEnd = !day.end.isEmpty
-        return !(hasStart && hasEnd)
-    }
-
-    private func suggestedTargetMinutes(for todayIndex: Int) -> Int? {
-        let todayData = weeklyData[todayIndex]
-        let otherTotal = weeklyData.enumerated().reduce(0) { partial, item in
-            item.offset == todayIndex ? partial : partial + getDailyMinutes(item.element)
-        }
-
-        let remainingRecognizedMinutes = weeklyGoalMinutes - otherTotal
-        let suggestedMinutes = clampWorkMinutesForDay(
-            todayData,
-            workMinutes: remainingRecognizedMinutes - getLeaveCreditMinutes(todayData)
-        )
-
-        let hasExceededDailyCapacity = remainingRecognizedMinutes > getLeaveCreditMinutes(todayData) + getMaxWorkMinutesForDay(todayData)
-        if hasExceededDailyCapacity || suggestedMinutes <= 0 {
-            return nil
-        }
-
-        return suggestedMinutes
     }
 
     private func syncTodayTargetInputs(with minutes: Int) {

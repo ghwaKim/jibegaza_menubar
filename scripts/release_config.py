@@ -13,3 +13,11 @@ def release_config(version, build, channel):
         "archive": f"Jibegaza-MenuBar-{version}" + (f"-test-build{build}" if testing else "") + ".zip",
         "feed": f"{BASE_URL}/download/{TESTING_TAG}/appcast.xml" if testing else f"{BASE_URL}/latest/download/appcast.xml",
     }
+
+
+def display_label(version, channel, build_mode):
+    if channel not in ("stable", "testing") or build_mode not in ("test", "release"):
+        raise ValueError("Invalid channel or build mode")
+    if build_mode == "test":
+        return "(Local beta)"
+    return f"v{version}" + (" (beta)" if channel == "testing" else "")

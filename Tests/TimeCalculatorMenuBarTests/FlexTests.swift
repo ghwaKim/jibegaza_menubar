@@ -26,6 +26,60 @@ struct FlexTests {
             "endTimestampExclusive": ["timestamp": day + Double(endHour) * 3_600_000]]]
     }
 
+    @Test func thursdayAutoFillResumesAfterResettingThursdayAndFriday() {
+        for reopen in [false, true] {
+            for resetOrder in [[3, 4], [4, 3]] {
+                let suite = "FlexTests.reset.\(UUID())"
+                let defaults = UserDefaults(suiteName: suite)!
+                defer { defaults.removePersistentDomain(forName: suite) }
+                let now = date(5)
+                let vm = TimeCalculatorViewModel(defaults: defaults, now: now, calendar: calendar)
+                let records = [2, 3, 4].map { FlexWorkRecord(date: date($0), minutes: 480, accountID: "me") }
+                _ = vm.importFlexRecords(records, now: now, automatic: true)
+                vm.updateWeeklyManualHours(idx: 4, value: "8")
+                vm.updateWeeklyManualMinutes(idx: 4, value: "0")
+                #expect(vm.isWeeklyAutoCalculated(at: 3))
+                #expect(vm.weeklyData[3].manualHours == "8")
+
+                for index in resetOrder { vm.resetWeeklyDay(idx: index) }
+                for index in [3, 4] {
+                    #expect(vm.weeklyData[index].manualHours.isEmpty)
+                    #expect(vm.weeklyData[index].manualMinutes.isEmpty)
+                }
+
+                // The temporary reset suppression must also recover from saved state.
+                let reloaded = reopen ? TimeCalculatorViewModel(defaults: defaults, now: now, calendar: calendar) : vm
+                reloaded.updateWeeklyManualHours(idx: 4, value: "7")
+                reloaded.updateWeeklyManualMinutes(idx: 4, value: "30")
+                #expect(reloaded.isWeeklyAutoCalculated(at: 3))
+                #expect(reloaded.weeklyData[3].manualHours == "8")
+                #expect(reloaded.weeklyData[3].manualMinutes == "30")
+                #expect(reloaded.weekTotalText == "40시간")
+                for index in 0..<3 {
+                    #expect(reloaded.weeklyData[index].importedFromFlex)
+                    #expect(reloaded.weeklyData[index].isConfirmed)
+                    #expect(reloaded.weeklyData[index].manualHours == "8")
+                }
+            }
+        }
+    }
+
+    @Test func resetDayResumesWhenAnotherDayBecomesAnnualLeave() {
+        let suite = "FlexTests.resetLeave.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let now = date(5)
+        let vm = TimeCalculatorViewModel(defaults: defaults, now: now, calendar: calendar)
+        _ = vm.importFlexRecords([2, 3, 4].map { FlexWorkRecord(date: date($0), minutes: 480, accountID: "me") }, now: now, automatic: true)
+        vm.updateWeeklyManualHours(idx: 4, value: "8")
+        vm.resetWeeklyDay(idx: 3)
+        vm.resetWeeklyDay(idx: 4)
+        vm.updateWeeklyLeaveType(idx: 4, leaveType: .annual)
+        #expect(vm.isWeeklyAutoCalculated(at: 3))
+        #expect(vm.weeklyData[3].manualHours == "8")
+        #expect(vm.weeklyData[4].leaveType == .annual)
+    }
+
     @Test func jsonSubtractsOnlyOverlappingBreaksAndMergesDuplicates() throws {
         let data = try payload(blocks: [block("WORK", 9, 18), block("WORK", 9, 18),
                                        block("REST", 12, 13), block("REST", 12, 13), block("REST", 7, 8)])

@@ -10,7 +10,9 @@ TAG="$(plutil -extract JibegazaReleaseTag raw "$ROOT_DIR/Resources/Info.plist")"
 ARCHIVE="$(plutil -extract JibegazaUpdateArchive raw "$ROOT_DIR/Resources/Info.plist")"
 ZIP="$UPDATE_DIR/$ARCHIVE"
 FEED="$UPDATE_DIR/appcast.xml"
-if [[ ! -f "$ZIP" || ! -f "$FEED" ]]; then
+DISPLAY_VERSION="$(plutil -extract JibegazaDisplayVersion raw "$ROOT_DIR/Resources/Info.plist")"
+SHARE_ZIP="$ROOT_DIR/dist/Jibegaza MenuBar $DISPLAY_VERSION.zip"
+if [[ ! -f "$ZIP" || ! -f "$FEED" || ! -f "$SHARE_ZIP" ]]; then
   echo "First run zsh scripts/build_app.sh --release." >&2
   exit 1
 fi
@@ -38,17 +40,18 @@ NOTES
       exit 1
     fi
     gh release upload testing "$ZIP" --repo ghwaKim/jibegaza_menubar
+    gh release upload testing "$SHARE_ZIP" --repo ghwaKim/jibegaza_menubar --clobber
     gh release upload testing "$FEED" --repo ghwaKim/jibegaza_menubar --clobber
     gh release edit testing --repo ghwaKim/jibegaza_menubar --prerelease --latest=false \
       --title "Testing: v$VERSION (build $BUILD)" --notes-file "$NOTES_FILE"
   else
-    gh release create testing "$ZIP" "$FEED" --repo ghwaKim/jibegaza_menubar \
+    gh release create testing "$ZIP" "$FEED" "$SHARE_ZIP" --repo ghwaKim/jibegaza_menubar \
       --target "$COMMIT" --title "Testing: v$VERSION (build $BUILD)" \
       --notes-file "$NOTES_FILE" --draft --prerelease --latest=false
     gh release edit testing --repo ghwaKim/jibegaza_menubar --draft=false --prerelease --latest=false
   fi
 elif [[ "$CHANNEL" == "stable" ]]; then
-  gh release create "$TAG" "$ZIP" "$FEED" \
+  gh release create "$TAG" "$ZIP" "$FEED" "$SHARE_ZIP" \
     --repo ghwaKim/jibegaza_menubar \
     --target "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
     --title "Jibegaza MenuBar v$VERSION" --generate-notes --draft

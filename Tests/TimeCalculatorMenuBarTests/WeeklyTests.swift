@@ -137,6 +137,16 @@ struct WeeklyTests {
         #expect(vm.weekTotalText == "40시간")
     }
 
+    @Test func clearingCalculatedEndRemainsManualWhenAnotherDayChanges() {
+        let vm = model()
+        vm.updateWeeklyStart(idx: 4, value: "09:00")
+        vm.updateWeeklyEnd(idx: 4, value: "")
+        vm.updateWeeklyEnd(idx: 0, value: "19:00")
+        #expect(vm.weeklyData[4].start == "09:00")
+        #expect(vm.weeklyData[4].end.isEmpty)
+        #expect(!vm.isWeeklyAutoCalculated(at: 4))
+    }
+
     @Test func editingCalculatedFieldReleasesOwnership() {
         let vm = model()
         vm.updateWeeklyStart(idx: 4, value: "09:00")

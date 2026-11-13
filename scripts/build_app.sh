@@ -73,12 +73,12 @@ if [[ "$BUILD_MODE" == "test" && "$RELEASE_CHANNEL" == "testing" ]]; then
   APP_VERSION="${RELEASE_VERSION:-${CURRENT_VERSION%.*}.$(( ${CURRENT_VERSION##*.} + 1 ))}"
   BUILD_NUMBER="${RELEASE_BUILD_NUMBER:-$CURRENT_BUILD}"
 fi
-python3 - "$ROOT_DIR" "$NEXT_PLIST" "$APP_VERSION" "$BUILD_NUMBER" "$RELEASE_CHANNEL" <<'CONFIG'
+python3 - "$ROOT_DIR" "$NEXT_PLIST" "$APP_VERSION" "$BUILD_NUMBER" "$RELEASE_CHANNEL" "$BUILD_MODE" <<'CONFIG'
 import plistlib, sys
 sys.path.insert(0, sys.argv[1] + "/scripts")
 from check_release import version_tuple
-from release_config import release_config
-path, version, build, channel = sys.argv[2:]
+from release_config import release_config, display_label
+path, version, build, channel, build_mode = sys.argv[2:]
 version_tuple(version)
 if not build.isdecimal() or int(build) <= 0:
     raise SystemExit("Invalid build number")
@@ -86,8 +86,9 @@ config = release_config(version, build, channel)
 with open(path, "rb") as f:
     info = plistlib.load(f)
 info.update(CFBundleShortVersionString=version, CFBundleVersion=build,
-            SUFeedURL=config["feed"], JibegazaReleaseChannel=channel,
-            JibegazaReleaseTag=config["tag"], JibegazaUpdateArchive=config["archive"])
+            SUFeedURL=config["feed"], JibegazaReleaseChannel=channel, JibegazaBuildMode=build_mode,
+            JibegazaReleaseTag=config["tag"], JibegazaUpdateArchive=config["archive"],
+            JibegazaDisplayVersion=display_label(version, channel, build_mode))
 with open(path, "wb") as f:
     plistlib.dump(info, f)
 CONFIG
@@ -98,10 +99,8 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 RELEASE_BINARY="$ROOT_DIR/.build/release/$EXECUTABLE_NAME"
-ZIP_PATH="$OUTPUT_DIR/$APP_NAME v$APP_VERSION.zip"
-if [[ "$RELEASE_CHANNEL" == "testing" ]]; then
-  ZIP_PATH="$OUTPUT_DIR/$APP_NAME v$APP_VERSION-test-build$BUILD_NUMBER.zip"
-fi
+DISPLAY_VERSION="$(plutil -extract JibegazaDisplayVersion raw "$NEXT_PLIST")"
+ZIP_PATH="$OUTPUT_DIR/$APP_NAME $DISPLAY_VERSION.zip"
 ICON_PATH="$ROOT_DIR/Resources/AppIcon.icns"
 EXPORT_IMAGE_PATH="$ROOT_DIR/Assets/Export/앱_설치_가이드.png"
 DIST_EXPORT_IMAGE_PATH="$OUTPUT_DIR/앱_설치_가이드.png"
