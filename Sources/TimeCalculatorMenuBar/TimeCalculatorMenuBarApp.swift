@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menuBar.show()
             return
         }
+        LaunchAtLogin.registerOnFirstLaunch()
         FlexConnection.shared.start(
             onClockIn: { [weak viewModel] date, now in viewModel?.syncFlexClockIn(date, now: now) },
             onImportRecords: { [weak viewModel] records, now, automatic in
