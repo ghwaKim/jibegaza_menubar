@@ -541,13 +541,15 @@ final class TimeCalculatorViewModel: ObservableObject {
         updateWeeklyInput(idx: idx, field: .start) { day in
             guard !value.isEmpty else { day.start = ""; return }
             let start = max(earliestStartMinutes, timeToMinutes(sanitizeTimeString(value)))
-            day.start = minutesToTime(day.leaveType == .none ? min(start, 10 * 60 + 30) : start)
+            day.start = minutesToTime(min(start, 10 * 60 + 30))
         }
     }
 
     func updateWeeklyEnd(idx: Int, value: String) {
         updateWeeklyInput(idx: idx, field: .end) { day in
-            day.end = sanitizeTimeString(value)
+            let end = sanitizeTimeString(value)
+            day.end = !end.isEmpty && day.mode == .range && day.leaveType == .none
+                ? minutesToTime(max(15 * 60 + 30, timeToMinutes(end))) : end
         }
     }
 
@@ -574,7 +576,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard !weeklyData[idx].isLocked(field) else { return }
         var data = weeklyData
         mutation(&data[idx])
-        if field == .start || field == .end { data[idx].lastEditedRangeField = field }
         weeklyFitMessages[idx] = nil
         data[idx].importedFromFlex = false
         var excluded = autoFillExclusionsAfterEditing(data, editedIndex: idx)
@@ -593,7 +594,6 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard !weeklyData[idx].isConfirmed && !weeklyData[idx].lockStart && !weeklyData[idx].lockEnd && !weeklyData[idx].lockManual else { return }
         var newData = weeklyData
         weeklyFitMessages[idx] = nil
-        newData[idx].lastEditedRangeField = nil
         newData[idx].start = ""
         newData[idx].end = ""
         newData[idx].manualHours = ""

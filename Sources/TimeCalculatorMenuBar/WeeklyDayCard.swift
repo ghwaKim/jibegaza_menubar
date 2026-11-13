@@ -51,6 +51,9 @@ struct WeeklyDayCard: View {
                             viewModel.toggleWeeklyLock(idx: index, field: .end)
                         }.disabled(day.end.isEmpty)
                         Divider()
+                        if !day.lockStart && !day.lockEnd {
+                            Text("출근 또는 퇴근 시각을 먼저 고정해주세요.")
+                        }
                         Button("인정시간 8h 맞추기") {
                             viewModel.fitWeeklyDayToEightHours(idx: index)
                         }

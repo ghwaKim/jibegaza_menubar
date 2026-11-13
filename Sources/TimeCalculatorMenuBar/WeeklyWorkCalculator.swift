@@ -12,15 +12,12 @@ enum WeeklyWorkCalculator {
               !(day.lockStart && day.lockEnd) else { return nil }
         if day.lockStart { return day.start.isEmpty ? nil : .start }
         if day.lockEnd { return day.end.isEmpty ? nil : .end }
-        if day.lastEditedRangeField == .end && !day.end.isEmpty { return .end }
-        if day.lastEditedRangeField == .start && !day.start.isEmpty { return .start }
-        if !day.start.isEmpty { return .start }
-        return day.end.isEmpty ? nil : .end
+        return nil
     }
 
     static func fitToEightHours(_ day: DayWorkData) -> FitResult {
         guard let anchor = eightHourAnchor(for: day) else {
-            return .unavailable("출근 또는 퇴근을 입력하고, 계산할 시각의 잠금을 해제해주세요.")
+            return .unavailable("출근 또는 퇴근 중 한 시각만 고정해주세요. 반대편 시각을 계산합니다.")
         }
         let needed = 8 * 60 - getLeaveCreditMinutes(day)
         var fitted = day
