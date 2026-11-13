@@ -81,8 +81,10 @@ struct ContentView: View {
 
             if flex.connected {
                 Menu {
-                    Toggle("자동 동기화", isOn: $flex.autoSync)
-                    Button("연결 해제", role: .destructive) { flex.disconnect() }
+                    Button(flex.autoSync ? "자동 동기화 중지" : "자동 동기화 재개") {
+                        flex.autoSync.toggle()
+                    }
+                    Button("flex 로그아웃", role: .destructive) { flex.disconnect() }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .accessibilityLabel("flex 설정")

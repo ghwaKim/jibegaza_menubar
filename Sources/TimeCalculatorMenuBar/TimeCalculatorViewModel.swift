@@ -6,6 +6,7 @@ import SwiftUI
 final class TimeCalculatorViewModel: ObservableObject {
     @Published private(set) var recordedWeekStart: Date?
     @Published private(set) var previousWeek: WeeklyArchive?
+    @Published private(set) var weeklyFitMessages: [Int: String] = [:]
     @Published var selectedTab: WorkTab = .today
     @Published private(set) var isStartTimeFromFlex: Bool
     @Published private(set) var startTime: Date
@@ -449,6 +450,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func resetWeeklyState() {
+        weeklyFitMessages = [:]
         recordedWeekStart = WorkWeek.start(for: currentTime, calendar: calendar)
         store.recordedWeekStart = recordedWeekStart
         store.flexWeekStart = WorkWeek.start(for: currentTime, calendar: calendar)
@@ -508,12 +510,18 @@ final class TimeCalculatorViewModel: ObservableObject {
         case .end: guard !data[idx].end.isEmpty else { return }; data[idx].lockEnd.toggle()
         case .manual: guard !data[idx].manualHours.isEmpty || !data[idx].manualMinutes.isEmpty else { return }; data[idx].lockManual.toggle()
         }
+        weeklyFitMessages[idx] = nil
         var preferred = autoFillTarget == AutoFillTarget(idx: idx, type: field) && data[idx].isLocked(field) ? nil : autoFillTarget
         var excluded = excludedAutoFillIndexes
-        // Pinning one endpoint makes the unlocked endpoint the calculation target.
+        // Preserve an entered opposite time if the rest of the week cannot yet
+        // support reverse calculation. Empty endpoints can remain pending targets.
         if field != .manual, data[idx].isLocked(field), autoFillTarget == nil || autoFillTarget?.idx == idx {
             let opposite: AutoFillType = field == .start ? .end : .start
-            if !data[idx].isLocked(opposite) {
+            let oppositeIsEmpty = opposite == .start ? data[idx].start.isEmpty : data[idx].end.isEmpty
+            let othersComplete = data.enumerated().allSatisfy {
+                $0.offset == idx || WeeklyWorkCalculator.isCompleteWeeklyDay($0.element)
+            }
+            if !data[idx].isLocked(opposite), oppositeIsEmpty || othersComplete {
                 preferred = AutoFillTarget(idx: idx, type: opposite)
                 excluded.removeAll { $0 == idx }
             }
@@ -537,13 +545,17 @@ final class TimeCalculatorViewModel: ObservableObject {
 
     func updateWeeklyStart(idx: Int, value: String) {
         updateWeeklyInput(idx: idx, field: .start) { day in
-            day.start = value.isEmpty ? "" : minutesToTime(max(earliestStartMinutes, timeToMinutes(sanitizeTimeString(value))))
+            guard !value.isEmpty else { day.start = ""; return }
+            let start = max(earliestStartMinutes, timeToMinutes(sanitizeTimeString(value)))
+            day.start = minutesToTime(min(start, 10 * 60 + 30))
         }
     }
 
     func updateWeeklyEnd(idx: Int, value: String) {
         updateWeeklyInput(idx: idx, field: .end) { day in
-            day.end = sanitizeTimeString(value)
+            let end = sanitizeTimeString(value)
+            day.end = !end.isEmpty && day.mode == .range && day.leaveType == .none
+                ? minutesToTime(max(15 * 60 + 30, timeToMinutes(end))) : end
         }
     }
 
@@ -570,6 +582,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard !weeklyData[idx].isLocked(field) else { return }
         var data = weeklyData
         mutation(&data[idx])
+        weeklyFitMessages[idx] = nil
         data[idx].importedFromFlex = false
         var excluded = autoFillExclusionsAfterEditing(data, editedIndex: idx)
         var preferred = autoFillTarget
@@ -586,6 +599,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     func resetWeeklyDay(idx: Int) {
         guard !weeklyData[idx].isConfirmed && !weeklyData[idx].lockStart && !weeklyData[idx].lockEnd && !weeklyData[idx].lockManual else { return }
         var newData = weeklyData
+        weeklyFitMessages[idx] = nil
         newData[idx].start = ""
         newData[idx].end = ""
         newData[idx].manualHours = ""
@@ -603,41 +617,24 @@ final class TimeCalculatorViewModel: ObservableObject {
         commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: nextExcluded)
     }
 
+    func canFitWeeklyDayToEightHours(idx: Int) -> Bool {
+        WeeklyWorkCalculator.eightHourAnchor(for: weeklyData[idx]) != nil
+    }
+
     func fitWeeklyDayToEightHours(idx: Int) {
-        let data = weeklyData[idx]
-        guard data.mode == .range, data.leaveType != .annual, !data.isConfirmed, !data.lockStart, !data.lockEnd else {
-            return
+        switch WeeklyWorkCalculator.fitToEightHours(weeklyData[idx]) {
+        case .unavailable(let message):
+            weeklyFitMessages[idx] = message
+        case .fitted(let day):
+            var data = weeklyData
+            data[idx] = day
+            weeklyFitMessages[idx] = nil
+            let excluded = Array(Set(excludedAutoFillIndexes + [idx])).sorted()
+            let preferred = autoFillTarget?.idx == idx ? nil : autoFillTarget
+            let result = WeeklyWorkCalculator.applyAutoFill(data: data, preferredTarget: preferred,
+                excludedIndexes: excluded, allowPreferredOverride: true)
+            commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excluded)
         }
-
-        let neededWorkMinutes = max(0, 8 * 60 - getLeaveCreditMinutes(data))
-        var newData = weeklyData
-        newData[idx].importedFromFlex = false
-
-        if !data.start.isEmpty {
-            newData[idx].end = minutesToTime(
-                calculateReverseTime(
-                    baseTimeMinutes: timeToMinutes(data.start),
-                    targetMinutes: neededWorkMinutes,
-                    type: .end
-                )
-            )
-        } else if !data.end.isEmpty {
-            newData[idx].start = minutesToTime(
-                calculateReverseTime(
-                    baseTimeMinutes: timeToMinutes(data.end),
-                    targetMinutes: neededWorkMinutes,
-                    type: .start
-                )
-            )
-        }
-
-        let result = WeeklyWorkCalculator.applyAutoFill(
-            data: newData,
-            preferredTarget: autoFillTarget,
-            excludedIndexes: excludedAutoFillIndexes,
-            allowPreferredOverride: false
-        )
-        commitWeeklyState(data: result.nextData, target: result.nextTarget, excludedIndexes: excludedAutoFillIndexes)
     }
 
     private func updateMenuBarMetric(_ metric: MenuBarMetric) {
@@ -791,6 +788,10 @@ final class TimeCalculatorViewModel: ObservableObject {
             }
         }
         mutation(&newData[idx])
+        if newData[idx].mode == .range, newData[idx].leaveType == .none, !newData[idx].end.isEmpty {
+            newData[idx].end = minutesToTime(max(15 * 60 + 30, timeToMinutes(newData[idx].end)))
+        }
+        weeklyFitMessages[idx] = nil
         newData[idx].importedFromFlex = false
 
         let nextExcluded = autoFillExclusionsAfterEditing(newData)

@@ -68,6 +68,59 @@ struct WeeklyTests {
         #expect(vm.weeklyData[4].end == "18:00")
     }
 
+    @Test func pinningPreservesEnteredTimesWhileOtherDaysAreIncomplete() {
+        for field in [AutoFillType.start, .end] {
+            let vm = model()
+            vm.resetWeeklyDay(idx: 0)
+            vm.updateWeeklyStart(idx: 4, value: "09:00")
+            vm.updateWeeklyEnd(idx: 4, value: "18:00")
+            vm.toggleWeeklyLock(idx: 4, field: field)
+            #expect(vm.weeklyData[4].start == "09:00")
+            #expect(vm.weeklyData[4].end == "18:00")
+            #expect(vm.canFitWeeklyDayToEightHours(idx: 4))
+            vm.updateWeeklyStart(idx: 0, value: "09:00")
+            vm.updateWeeklyEnd(idx: 0, value: "19:00")
+            #expect(vm.weeklyData[4].start == "09:00")
+            #expect(vm.weeklyData[4].end == "18:00")
+        }
+    }
+
+    @Test func pinnedEmptyEndpointStillResumesAutomaticCalculation() {
+        let vm = model()
+        vm.resetWeeklyDay(idx: 0)
+        vm.updateWeeklyStart(idx: 4, value: "09:00")
+        vm.toggleWeeklyLock(idx: 4, field: .start)
+        #expect(vm.weeklyData[4].end.isEmpty)
+        vm.updateWeeklyStart(idx: 0, value: "09:00")
+        vm.updateWeeklyEnd(idx: 0, value: "18:00")
+        #expect(vm.weeklyData[4].start == "09:00")
+        #expect(vm.weeklyData[4].end == "18:00")
+        #expect(vm.isWeeklyAutoCalculated(at: 4))
+    }
+
+    @Test func changingLeaveToNormalClampsManualDeparture() {
+        for leave in [LeaveType.half, .halfHalf] {
+            let vm = model(leave: leave)
+            vm.updateWeeklyStart(idx: 4, value: "09:00")
+            vm.updateWeeklyEnd(idx: 4, value: "14:00")
+            vm.updateWeeklyLeaveType(idx: 4, leaveType: .none)
+            #expect(vm.weeklyData[4].start == "09:00")
+            #expect(vm.weeklyData[4].end == "15:30")
+            #expect(getDailyMinutes(vm.weeklyData[4]) == 330)
+        }
+    }
+
+    @Test func returningToNormalRangeClampsRetainedDeparture() {
+        let vm = model(leave: .half)
+        vm.updateWeeklyStart(idx: 4, value: "09:00")
+        vm.updateWeeklyEnd(idx: 4, value: "14:00")
+        vm.toggleWeeklyMode(idx: 4)
+        vm.updateWeeklyLeaveType(idx: 4, leaveType: .none)
+        vm.toggleWeeklyMode(idx: 4)
+        #expect(vm.weeklyData[4].start == "09:00")
+        #expect(vm.weeklyData[4].end == "15:30")
+    }
+
     @Test func manualLockAndIncompleteConfirmation() {
         let vm = model(lastMode: .manual)
         vm.toggleWeeklyConfirmation(idx: 4)
@@ -179,16 +232,37 @@ struct WeeklyTests {
         }
     }
 
-    @Test func reverseCoreLimitPreservesEnteredEndAndWarns() {
+    @Test func reverseCalculationUsesClampedNormalDeparture() {
         let vm = model(otherHours: 9)
         vm.updateWeeklyEnd(idx: 4, value: "12:00")
-        #expect(vm.weeklyData[4].start == "08:00")
+        #expect(vm.weeklyData[4].end == "15:30")
+        #expect(vm.weeklyData[4].start == "10:30")
         #expect(vm.weekTotalText == "40시간")
-        #expect(vm.weeklyCalculationNotice?.contains("15:30 이후") == true)
+        #expect(vm.weeklyCalculationNotice == nil)
         let late = model(otherHours: 9)
         late.updateWeeklyEnd(idx: 4, value: "18:00")
         #expect(late.weeklyData[4].start == "10:30")
         #expect(late.weeklyCalculationNotice?.contains("초과") == true)
+    }
+
+    @Test func directNormalDepartureClampsWithoutMovingArrivalAndCanBeCleared() {
+        let vm = model()
+        vm.updateWeeklyStart(idx: 4, value: "09:00")
+        for (input, expected) in [("14:00", "15:30"), ("15:30", "15:30"), ("18:00", "18:00")] {
+            vm.updateWeeklyEnd(idx: 4, value: input)
+            #expect(vm.weeklyData[4].end == expected)
+            #expect(vm.weeklyData[4].start == "09:00")
+        }
+        vm.resetWeeklyDay(idx: 0)
+        vm.updateWeeklyEnd(idx: 4, value: "")
+        #expect(vm.weeklyData[4].end.isEmpty)
+        for leave in [LeaveType.half, .halfHalf] {
+            let exempt = model(leave: leave)
+            exempt.updateWeeklyStart(idx: 4, value: "09:00")
+            exempt.updateWeeklyEnd(idx: 4, value: "14:00")
+            #expect(exempt.weeklyData[4].end == "14:00")
+            #expect(exempt.weeklyData[4].start == "09:00")
+        }
     }
 
     @Test func leaveChangeRecalculatesAndAnnualRemovesTarget() {
@@ -202,15 +276,16 @@ struct WeeklyTests {
         #expect(vm.weekTotalText == "40시간")
     }
 
-    @Test func dailyCapacityAndLateEndReportDeficit() {
+    @Test func dailyCapacityReportsDeficitAndLateArrivalIsClamped() {
         let vm = model(otherHours: 7)
         vm.updateWeeklyStart(idx: 4, value: "09:00")
         #expect(vm.weekTotalText == "37시간")
         #expect(vm.weeklyCalculationNotice?.contains("9시간") == true)
-        let late = model()
+        let late = model(leave: .half)
         late.updateWeeklyStart(idx: 4, value: "20:00")
-        #expect(late.weeklyData[4].end == "23:59")
-        #expect(late.weeklyCalculationNotice?.contains("23:59") == true)
+        #expect(late.weeklyData[4].start == "10:30")
+        #expect(late.weeklyData[4].end == "15:30")
+        #expect(late.weeklyCalculationNotice == nil)
     }
 
     @Test func manualTargetRecalculatesAndCanBeOverridden() {
