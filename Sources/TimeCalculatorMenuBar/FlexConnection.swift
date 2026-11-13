@@ -34,7 +34,7 @@ final class FlexConnection: NSObject, ObservableObject {
                 retryAfterReading = false
                 attemptedRefresh = false
                 refreshTask?.cancel()
-                message = "자동 동기화를 껐어요."
+                message = "자동 동기화를 중지했어요."
             }
         }
     }
@@ -293,7 +293,7 @@ final class FlexConnection: NSObject, ObservableObject {
         isDisconnecting = true
         login.clearSession { [weak self] in
             self?.isDisconnecting = false
-            self?.message = "연결 정보를 삭제했습니다. 다시 연결하려면 로그인을 눌러주세요."
+            self?.message = "flex에서 로그아웃했어요. 다시 연결하려면 로그인해주세요."
         }
     }
 

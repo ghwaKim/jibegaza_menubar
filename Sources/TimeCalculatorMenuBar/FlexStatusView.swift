@@ -34,7 +34,7 @@ struct FlexSyncSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Label(flex.autoSync ? "flex 자동 동기화" : "flex 연결됨", systemImage: "link")
+                Label(flex.autoSync ? "flex 자동 동기화" : "자동 동기화 중지됨", systemImage: "link")
                 Spacer()
                 if flex.isReading {
                     ProgressView().controlSize(.small)
