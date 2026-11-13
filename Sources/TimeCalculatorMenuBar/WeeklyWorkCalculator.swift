@@ -2,6 +2,56 @@ import Foundation
 
 /// Pure weekly validation and reverse calculation; callers own state and persistence.
 enum WeeklyWorkCalculator {
+    enum FitResult {
+        case fitted(DayWorkData)
+        case unavailable(String)
+    }
+
+    static func eightHourAnchor(for day: DayWorkData) -> AutoFillType? {
+        guard day.mode == .range, day.leaveType != .annual, !day.isConfirmed,
+              !(day.lockStart && day.lockEnd) else { return nil }
+        if day.lockStart { return day.start.isEmpty ? nil : .start }
+        if day.lockEnd { return day.end.isEmpty ? nil : .end }
+        if day.lastEditedRangeField == .end && !day.end.isEmpty { return .end }
+        if day.lastEditedRangeField == .start && !day.start.isEmpty { return .start }
+        if !day.start.isEmpty { return .start }
+        return day.end.isEmpty ? nil : .end
+    }
+
+    static func fitToEightHours(_ day: DayWorkData) -> FitResult {
+        guard let anchor = eightHourAnchor(for: day) else {
+            return .unavailable("출근 또는 퇴근을 입력하고, 계산할 시각의 잠금을 해제해주세요.")
+        }
+        let needed = 8 * 60 - getLeaveCreditMinutes(day)
+        var fitted = day
+        if anchor == .start {
+            let start = timeToMinutes(day.start)
+            let end = calculateReverseTime(baseTimeMinutes: start, targetMinutes: needed, type: .end)
+            // Keep these checks for older saved records and leave-day inputs.
+            guard start >= earliestStartMinutes, end <= 1439 else {
+                return .unavailable("출근 08:00 이후·당일 퇴근 조건으로 8시간을 맞출 수 없습니다.")
+            }
+            fitted.end = minutesToTime(end)
+        } else {
+            let start = calculateReverseTime(baseTimeMinutes: timeToMinutes(day.end), targetMinutes: needed, type: .start)
+            guard start >= earliestStartMinutes else {
+                return .unavailable("8시간을 맞추려면 08:00 이전 출근이 필요합니다. 기준 시각을 조정해주세요.")
+            }
+            fitted.start = minutesToTime(start)
+        }
+        if timeToMinutes(fitted.start) > 10 * 60 + 30 {
+            return .unavailable("출근 상한 10:30을 지키면서 8시간을 맞출 수 없습니다. 기준 시각을 조정해주세요.")
+        }
+        // Eight hours of normal work starting at or after 08:00 ends no earlier
+        // than 17:00, so a separate 15:30 core-time check is unnecessary here.
+        guard getDailyMinutes(fitted) == 8 * 60 else {
+            return .unavailable("입력한 구간으로 인정시간 8시간을 맞출 수 없습니다.")
+        }
+        fitted.importedFromFlex = false
+        fitted.isFlexAutoLocked = false
+        return .fitted(fitted)
+    }
+
     static func isCompleteWeeklyDay(_ day: DayWorkData) -> Bool {
         if day.leaveType == .annual { return true }
         if day.mode == .manual { return !day.manualHours.isEmpty || !day.manualMinutes.isEmpty }
@@ -126,7 +176,7 @@ enum WeeklyWorkCalculator {
         case .start:
             var start = calculateReverseTime(
                 baseTimeMinutes: timeToMinutes(day.end), targetMinutes: targetWorkMinutes, type: .start)
-            if day.leaveType == .none { start = min(start, 10 * 60 + 30) }
+            start = min(start, 10 * 60 + 30)
             nextData[resolvedTarget.idx].start = minutesToTime(max(earliestStartMinutes, start))
         }
         return (nextData, resolvedTarget)
@@ -157,7 +207,10 @@ enum WeeklyWorkCalculator {
             if target.type == .start && timeToMinutes(day.start) == earliestStartMinutes {
                 reasons.append("출근 하한 08:00")
             }
-            if day.leaveType == .none { reasons.append("정상근무 코어타임 10:30~15:30") }
+            if target.type == .start && timeToMinutes(day.start) == 10 * 60 + 30 {
+                reasons.append("출근 상한 10:30")
+            }
+            if day.leaveType == .none { reasons.append("정상근무 최소 퇴근 15:30") }
             if timeToMinutes(day.end) == 1439 { reasons.append("당일 종료 한도 23:59") }
         }
         let total = weeklyWorkedMinutes

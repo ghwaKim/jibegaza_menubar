@@ -31,7 +31,7 @@ struct TodayWorkCalculator {
             endTime = constrainedEnd(endTime, appliesCoreTime: appliesCoreTime)
             let minutes = calendar.component(.hour, from: endTime) * 60 + calendar.component(.minute, from: endTime)
             var result = calculateReverseTime(baseTimeMinutes: minutes, targetMinutes: targetWorkMinutes, type: .start)
-            if appliesCoreTime { result = min(result, 10 * 60 + 30) }
+            result = min(result, 10 * 60 + 30)
             if result < earliestStartMinutes {
                 startTime = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: endTime) ?? endTime
                 let endMinutes = calculateReverseTime(

@@ -207,7 +207,8 @@ struct WeeklyTests {
         vm.updateWeeklyStart(idx: 4, value: "09:00")
         #expect(vm.weekTotalText == "37시간")
         #expect(vm.weeklyCalculationNotice?.contains("9시간") == true)
-        let late = model()
+        // Leave-day direct inputs can still reach the same-day departure limit.
+        let late = model(leave: .half)
         late.updateWeeklyStart(idx: 4, value: "20:00")
         #expect(late.weeklyData[4].end == "23:59")
         #expect(late.weeklyCalculationNotice?.contains("23:59") == true)

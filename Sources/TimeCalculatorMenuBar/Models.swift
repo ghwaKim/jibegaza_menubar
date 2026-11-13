@@ -191,6 +191,7 @@ struct DayWorkData: Codable, Identifiable {
     var lockStart: Bool
     var lockEnd: Bool
     var lockManual: Bool
+    var lastEditedRangeField: AutoFillType? = nil
     var isConfirmed: Bool = false
     var importedFromFlex = false
     // Older versions automatically confirmed every imported day.
@@ -209,6 +210,7 @@ struct DayWorkData: Codable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case day, mode, start, end, manualHours, manualMinutes, leaveType
         case lockStart, lockEnd, lockManual, isConfirmed, importedFromFlex, flexImportUsesManualLock, isFlexAutoLocked
+        case lastEditedRangeField
     }
 
     var id: String { day }
@@ -239,6 +241,7 @@ extension DayWorkData {
         lockStart = try values.decodeIfPresent(Bool.self, forKey: .lockStart) ?? false
         lockEnd = try values.decodeIfPresent(Bool.self, forKey: .lockEnd) ?? false
         lockManual = try values.decodeIfPresent(Bool.self, forKey: .lockManual) ?? false
+        lastEditedRangeField = try values.decodeIfPresent(AutoFillType.self, forKey: .lastEditedRangeField)
         isConfirmed = try values.decodeIfPresent(Bool.self, forKey: .isConfirmed) ?? false
         importedFromFlex = try values.decodeIfPresent(Bool.self, forKey: .importedFromFlex) ?? false
         isFlexAutoLocked = try values.decodeIfPresent(Bool.self, forKey: .isFlexAutoLocked) ?? false

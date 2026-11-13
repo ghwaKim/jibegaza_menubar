@@ -50,6 +50,11 @@ struct WeeklyDayCard: View {
                         Button(day.lockEnd ? "퇴근 고정 해제" : "퇴근 고정") {
                             viewModel.toggleWeeklyLock(idx: index, field: .end)
                         }.disabled(day.end.isEmpty)
+                        Divider()
+                        Button("인정시간 8h 맞추기") {
+                            viewModel.fitWeeklyDayToEightHours(idx: index)
+                        }
+                        .disabled(!viewModel.canFitWeeklyDayToEightHours(idx: index))
                     } label: {
                         Image(systemName: day.lockStart || day.lockEnd ? "pin.fill" : "pin")
                     }
@@ -70,6 +75,9 @@ struct WeeklyDayCard: View {
                 .accessibilityLabel(day.isConfirmed ? "기록 확정 해제" : "요일 기록 확정")
             }
 
+            if let message = viewModel.weeklyFitMessages[index] {
+                Text(message).font(.caption).foregroundStyle(.orange)
+            }
             if day.leaveType != .annual {
                 weeklyInputRow(day: day, index: index)
                     .id(inputRevision)
