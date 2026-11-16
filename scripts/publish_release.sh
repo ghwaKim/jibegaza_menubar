@@ -50,6 +50,8 @@ NOTES
       --notes-file "$NOTES_FILE" --draft --prerelease --latest=false
     gh release edit testing --repo ghwaKim/jibegaza_menubar --draft=false --prerelease --latest=false
   fi
+  # Keep the new feed and both current ZIPs; prune only after publication succeeds.
+  python3 "$ROOT_DIR/scripts/cleanup_testing_assets.py" "$ARCHIVE" "${SHARE_ZIP:t}"
 elif [[ "$CHANNEL" == "stable" ]]; then
   gh release create "$TAG" "$ZIP" "$FEED" "$SHARE_ZIP" \
     --repo ghwaKim/jibegaza_menubar \
