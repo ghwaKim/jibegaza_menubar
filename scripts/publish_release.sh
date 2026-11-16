@@ -53,6 +53,10 @@ NOTES
   # Keep the new feed and both current ZIPs; prune only after publication succeeds.
   python3 "$ROOT_DIR/scripts/cleanup_testing_assets.py" "$ARCHIVE" "${SHARE_ZIP:t}"
 elif [[ "$CHANNEL" == "stable" ]]; then
+  if [[ "${RELEASE_REPLACE_EXISTING:-false}" == "true" ]]; then
+    python3 "$ROOT_DIR/scripts/replace_release.py" "$ZIP" "$FEED" "$SHARE_ZIP" "$ROOT_DIR/Resources/Info.plist"
+    exit 0
+  fi
   gh release create "$TAG" "$ZIP" "$FEED" "$SHARE_ZIP" \
     --repo ghwaKim/jibegaza_menubar \
     --target "$(git -C "$ROOT_DIR" rev-parse HEAD)" \

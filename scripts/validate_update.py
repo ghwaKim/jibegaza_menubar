@@ -31,7 +31,8 @@ def validate(archive, feed, source_plist):
     # Support running directly and importing via the test loader.
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
     from release_config import release_config, BASE_URL
-    config = release_config(info["CFBundleShortVersionString"], info["CFBundleVersion"], channel)
+    config = release_config(info["CFBundleShortVersionString"], info["CFBundleVersion"], channel,
+                            info.get("JibegazaReplaceExisting", False))
     if (info["SUFeedURL"] != config["feed"] or archive.name != config["archive"]
             or info.get("JibegazaReleaseTag", config["tag"]) != config["tag"]
             or info.get("JibegazaUpdateArchive", config["archive"]) != config["archive"]):

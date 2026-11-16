@@ -19,6 +19,10 @@ on:
         description: '선택: 비우면 최신 빌드 번호 +1'
         required: false
         type: string
+      replace_existing:
+        description: '기존 최신 정식 버전 교체 (stable 전용, version 필수)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,6 +41,7 @@ jobs:
       contents: write
     env:
       RELEASE_CHANNEL: ${{ inputs.channel }}
+      RELEASE_REPLACE_EXISTING: ${{ inputs.replace_existing }}
       DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
     steps:
       - name: Check out release source

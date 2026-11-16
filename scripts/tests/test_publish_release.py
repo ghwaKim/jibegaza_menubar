@@ -79,6 +79,7 @@ if sys.argv[1:3] == ["release", "upload"] and os.environ["FAIL_UPLOAD"] == "1": 
             for binary in binaries.iterdir():
                 binary.chmod(0o700)
             env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                       RELEASE_REPLACE_EXISTING="false",
                        COMMAND_LOG=str(log), EXISTS="1" if exists else "0", RELEASE_STATUS=status,
                        TEST_FEED=str(output / "appcast.xml"), FAIL_UPLOAD="1" if fail_upload else "0")
             result = subprocess.run(["zsh", str(root / "scripts/publish_release.sh")],
