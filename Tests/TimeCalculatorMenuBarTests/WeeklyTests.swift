@@ -4,6 +4,20 @@ import Testing
 
 @MainActor
 struct WeeklyTests {
+    @Test func manualInputsLimitPastedDigitsBeforeCalculating() {
+        let vm = TimeCalculatorViewModel(defaults: UserDefaults(suiteName: "WeeklyTests.inputLimit.\(UUID())")!)
+        vm.updateWeeklyManualHours(idx: 0, value: "9a99999999999999999")
+        vm.updateWeeklyManualMinutes(idx: 0, value: "1b2345")
+        #expect(vm.weeklyData[0].manualHours == "9")
+        #expect(vm.weeklyData[0].manualMinutes == "12")
+        #expect(getWorkMinutes(vm.weeklyData[0]) == 9 * 60 + 12)
+        #expect(vm.weeklyDayRecognizedText(at: 0) == "9시간")
+        vm.updateWeeklyManualHours(idx: 0, value: "")
+        vm.updateWeeklyManualMinutes(idx: 0, value: "")
+        #expect(vm.weeklyData[0].manualHours.isEmpty)
+        #expect(vm.weeklyData[0].manualMinutes.isEmpty)
+    }
+
     func model(lastMode: InputMode = .range, leave: LeaveType = .none, otherHours: Int = 8) -> TimeCalculatorViewModel {
         var days = defaultWeekData()
         for i in 0..<4 {

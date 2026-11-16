@@ -134,7 +134,8 @@ struct WeeklyDayCard: View {
                     ManualTimeField(
                         title: "시간",
                         text: weeklyManualHoursBinding(index: index),
-                        disabled: day.isLocked(.manual)
+                        disabled: day.isLocked(.manual),
+                        maximumDigits: 1
                     )
                     ManualTimeField(
                         title: "분",

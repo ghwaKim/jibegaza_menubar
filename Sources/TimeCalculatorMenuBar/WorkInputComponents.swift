@@ -10,10 +10,10 @@ struct ManualTimeField: View {
     let title: String
     let text: Binding<String>
     let disabled: Bool
+    var maximumDigits = 2
     var body: some View {
         HStack(spacing: 8) {
-            TextField("0", text: text)
-                .textFieldStyle(.plain)
+            NumericTimeInput(text: text, maximumDigits: maximumDigits)
                 .frame(width: 28, alignment: .leading)
                 .disabled(disabled)
                 .padding(.horizontal, 10)
@@ -30,6 +30,83 @@ struct ManualTimeField: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
+        }
+    }
+}
+
+/// Validate the field editor itself, including paste and IME input.
+final class TimeDigitsFormatter: Formatter {
+    let maximumDigits: Int
+
+    init(maximumDigits: Int) {
+        self.maximumDigits = maximumDigits
+        super.init()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func string(for obj: Any?) -> String? { obj as? String }
+
+    override func getObjectValue(_ obj: AutoreleasingUnsafeMutablePointer<AnyObject?>?,
+                                 for string: String,
+                                 errorDescription error: AutoreleasingUnsafeMutablePointer<NSString?>?) -> Bool {
+        guard accepts(string) else { return false }
+        obj?.pointee = string as NSString
+        return true
+    }
+
+    override func isPartialStringValid(_ partialString: String,
+                                      newEditingString newString: AutoreleasingUnsafeMutablePointer<NSString?>?,
+                                      errorDescription error: AutoreleasingUnsafeMutablePointer<NSString?>?) -> Bool {
+        accepts(partialString)
+    }
+
+    func accepts(_ value: String) -> Bool {
+        value.count <= maximumDigits && value.utf8.allSatisfy { (48...57).contains($0) }
+    }
+}
+
+private struct NumericTimeInput: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
+    @Binding var text: String
+    let maximumDigits: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.placeholderString = "0"
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.formatter = TimeDigitsFormatter(maximumDigits: maximumDigits)
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.text = $text
+        field.isEnabled = isEnabled
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            text.wrappedValue = field.stringValue
+            // Reflect model normalization (such as minutes capped at 59) while editing.
+            let normalized = text.wrappedValue
+            if field.stringValue != normalized {
+                field.stringValue = normalized
+                if let editor = field.currentEditor() {
+                    editor.string = normalized
+                    editor.selectedRange = NSRange(location: normalized.utf16.count, length: 0)
+                }
+            }
         }
     }
 }

@@ -560,7 +560,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     func updateWeeklyManualHours(idx: Int, value: String) {
-        updateWeeklyInput(idx: idx, field: .manual) { $0.manualHours = sanitizeNumberString(value) }
+        updateWeeklyInput(idx: idx, field: .manual) { $0.manualHours = sanitizeTodayHourString(value) }
     }
 
     func updateWeeklyManualMinutes(idx: Int, value: String) {
@@ -943,11 +943,11 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func sanitizeNumberString(_ value: String) -> String {
-        String(value.filter(\.isNumber))
+        String(value.filter(\.isNumber).prefix(2))
     }
 
     private func sanitizeTodayHourString(_ value: String) -> String {
-        String(value.filter(\.isNumber).prefix(2))
+        String(value.filter(\.isNumber).prefix(1))
     }
 
     private func sanitizeTodayMinuteString(_ value: String) -> String {
