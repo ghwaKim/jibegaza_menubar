@@ -103,7 +103,7 @@ struct TodayWorkView: View {
             if viewModel.shouldShowManualTargetInputs {
                 HStack(alignment: .center, spacing: 12) {
                     HStack(spacing: 12) {
-                        ManualTimeField(title: "시간", text: viewModel.targetManualHoursBinding, disabled: false)
+                        ManualTimeField(title: "시간", text: viewModel.targetManualHoursBinding, disabled: false, maximumDigits: 1)
                         ManualTimeField(title: "분", text: viewModel.targetManualMinutesBinding, disabled: false)
                     }
 

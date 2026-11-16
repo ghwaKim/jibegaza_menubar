@@ -4,6 +4,22 @@ import Testing
 
 @MainActor
 struct TodayTests {
+    @Test func manualTargetLimitsHoursToOneDigitAndMinutesToTwo() {
+        let vm = model(now: date(12))
+        vm.updateTodayTargetSelection(.manual)
+        vm.updateTodayManualTargetHours("9a876543210")
+        vm.updateTodayManualTargetMinutes("3b456")
+        #expect(vm.targetInputHours == "9")
+        #expect(vm.targetInputMinutes == "34")
+        #expect(vm.targetWorkMinutes == 9 * 60 + 34)
+        vm.updateTodayManualTargetMinutes("999")
+        #expect(vm.targetInputMinutes == "59")
+        vm.updateTodayManualTargetHours("")
+        vm.updateTodayManualTargetMinutes("")
+        #expect(vm.targetInputHours.isEmpty)
+        #expect(vm.targetInputMinutes.isEmpty)
+    }
+
     func date(_ hour: Int, _ minute: Int = 0) -> Date {
         Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: hour, minute: minute))!
     }
