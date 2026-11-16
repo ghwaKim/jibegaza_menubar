@@ -60,10 +60,10 @@ if [[ "$BUILD_MODE" == "release" ]]; then
   APP_VERSION="${RELEASE_VERSION:-${CURRENT_VERSION%.*}.$(( ${CURRENT_VERSION##*.} + 1 ))}"
   BUILD_NUMBER="${RELEASE_BUILD_NUMBER:-$(( CURRENT_BUILD + 1 ))}"
   python3 - "$ROOT_DIR" "$APP_VERSION" "$BUILD_NUMBER" "$CURRENT_VERSION" "$CURRENT_BUILD" <<'CHECK'
-import sys
+import os, sys
 sys.path.insert(0, sys.argv[1] + "/scripts")
 from check_release import validate_numbers
-validate_numbers(*sys.argv[2:])
+validate_numbers(*sys.argv[2:], allow_same_version=os.environ.get("RELEASE_REPLACE_EXISTING") == "true")
 CHECK
   plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$NEXT_PLIST"
   plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$NEXT_PLIST"
@@ -74,7 +74,7 @@ if [[ "$BUILD_MODE" == "test" && "$RELEASE_CHANNEL" == "testing" ]]; then
   BUILD_NUMBER="${RELEASE_BUILD_NUMBER:-$CURRENT_BUILD}"
 fi
 python3 - "$ROOT_DIR" "$NEXT_PLIST" "$APP_VERSION" "$BUILD_NUMBER" "$RELEASE_CHANNEL" "$BUILD_MODE" <<'CONFIG'
-import plistlib, sys
+import os, plistlib, sys
 sys.path.insert(0, sys.argv[1] + "/scripts")
 from check_release import version_tuple
 from release_config import release_config, display_label
@@ -82,12 +82,16 @@ path, version, build, channel, build_mode = sys.argv[2:]
 version_tuple(version)
 if not build.isdecimal() or int(build) <= 0:
     raise SystemExit("Invalid build number")
-config = release_config(version, build, channel)
+replace_existing = os.environ.get("RELEASE_REPLACE_EXISTING") == "true"
+if replace_existing and (channel != "stable" or build_mode != "release"):
+    raise SystemExit("Replacement is only supported for stable release builds")
+config = release_config(version, build, channel, replace_existing)
 with open(path, "rb") as f:
     info = plistlib.load(f)
 info.update(CFBundleShortVersionString=version, CFBundleVersion=build,
             SUFeedURL=config["feed"], JibegazaReleaseChannel=channel, JibegazaBuildMode=build_mode,
             JibegazaReleaseTag=config["tag"], JibegazaUpdateArchive=config["archive"],
+            JibegazaReplaceExisting=replace_existing,
             JibegazaDisplayVersion=display_label(version, channel, build_mode))
 with open(path, "wb") as f:
     plistlib.dump(info, f)

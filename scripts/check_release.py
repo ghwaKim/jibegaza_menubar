@@ -17,10 +17,11 @@ def version_tuple(value):
     return tuple(map(int, value.split(".")))
 
 
-def validate_numbers(version, build, previous_version, previous_build):
+def validate_numbers(version, build, previous_version, previous_build, allow_same_version=False):
     if not re.fullmatch(r"[1-9][0-9]*", build):
         raise ValueError("Build number must be a positive integer")
-    if version_tuple(version) <= version_tuple(previous_version):
+    if (version_tuple(version) < version_tuple(previous_version) or
+            (version_tuple(version) == version_tuple(previous_version) and not allow_same_version)):
         raise ValueError("Version must exceed the previous version")
     if int(build) <= int(previous_build):
         raise ValueError("Build number must exceed the previous build")
@@ -30,10 +31,14 @@ def api(path):
     return json.loads(subprocess.check_output(["gh", "api", path], text=True))
 
 
-def resolve_numbers(source, releases, requested_version="", requested_build="", channel="stable"):
+def resolve_numbers(source, releases, requested_version="", requested_build="", channel="stable", replace_existing=False):
     """Use the greatest source/release values; drafts reserve version tags too."""
     if channel not in ("stable", "testing"):
         raise ValueError("Invalid release channel")
+    if replace_existing:
+        target = next((r for r in releases if r["tag_name"] == f"v{requested_version.strip()}"), None)
+        if channel != "stable" or not target or target["draft"] or target["prerelease"]:
+            raise ValueError("Replacement requires an explicit existing published stable version")
     testing_version = None
     previous_version = source["CFBundleShortVersionString"]
     previous_build = int(source["CFBundleVersion"])
@@ -71,9 +76,11 @@ def resolve_numbers(source, releases, requested_version="", requested_build="", 
         next_version = max(next_version, testing_version, key=version_tuple)
     version = requested_version.strip() or next_version
     build = requested_build.strip() or str(previous_build + 1)
-    if channel == "stable" and f"v{version}" in reserved_tags:
+    if replace_existing and version_tuple(version) != version_tuple(previous_version):
+        raise ValueError("Only the newest stable/source version can be replaced")
+    if channel == "stable" and f"v{version}" in reserved_tags and not replace_existing:
         raise ValueError("This release tag already exists (including drafts)")
-    validate_numbers(version, build, previous_version, str(previous_build))
+    validate_numbers(version, build, previous_version, str(previous_build), allow_same_version=replace_existing)
     return version, build
 
 
@@ -87,7 +94,8 @@ def main():
     version, build = resolve_numbers(
         source, [release for page in pages for release in page],
         os.environ.get("RELEASE_VERSION", ""), os.environ.get("RELEASE_BUILD_NUMBER", ""),
-        os.environ.get("RELEASE_CHANNEL", "stable"))
+        os.environ.get("RELEASE_CHANNEL", "stable"),
+        os.environ.get("RELEASE_REPLACE_EXISTING", "false") == "true")
     if os.environ.get("GITHUB_ENV"):
         with open(os.environ["GITHUB_ENV"], "a") as output:
             output.write(f"RELEASE_VERSION={version}\nRELEASE_BUILD_NUMBER={build}\n")

@@ -26,7 +26,7 @@ metadata = module("validate_update")
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         # Tests calling main must not modify the real Actions job's env/summary files.
-        environment = patch.dict(os.environ, {"GITHUB_ENV": "", "GITHUB_STEP_SUMMARY": "", "RELEASE_CHANNEL": "stable"})
+        environment = patch.dict(os.environ, {"GITHUB_ENV": "", "GITHUB_STEP_SUMMARY": "", "RELEASE_CHANNEL": "stable", "RELEASE_REPLACE_EXISTING": "false"})
         environment.start()
         self.addCleanup(environment.stop)
 
@@ -73,6 +73,18 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(numbers.resolve_numbers(source, [], "2.0", ""), ("2.0", "5"))
         self.assertEqual(numbers.resolve_numbers(source, [], "", "20"), ("1.4", "20"))
         self.assertEqual(numbers.resolve_numbers(source, [], "  ", "  "), ("1.4", "5"))
+
+    def test_replacement_requires_existing_newest_stable_and_increasing_build(self):
+        source = {"CFBundleShortVersionString": "1.4", "CFBundleVersion": "10"}
+        stable = {"tag_name": "v1.4", "draft": False, "prerelease": False, "assets": []}
+        self.assertEqual(numbers.resolve_numbers(source, [stable], "1.4", "", "stable", True), ("1.4", "11"))
+        cases = [([], "1.4", "11", "stable"), ([stable], "", "11", "stable"),
+                 ([stable], "1.4", "10", "stable"), ([stable], "1.4", "11", "testing"),
+                 ([dict(stable, draft=True)], "1.4", "11", "stable"),
+                 ([stable, dict(stable, tag_name="v1.5")], "1.4", "11", "stable")]
+        for releases, version, build, channel in cases:
+            with self.subTest(releases=releases, version=version, build=build, channel=channel), self.assertRaises(ValueError):
+                numbers.resolve_numbers(source, releases, version, build, channel, True)
 
     def test_automatic_version_uses_numeric_max_and_reserves_draft_tags(self):
         source = {"CFBundleShortVersionString": "1.3", "CFBundleVersion": "4"}
