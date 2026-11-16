@@ -25,7 +25,7 @@
 | --- | --- |
 | 운영체제 | macOS. 앱의 최소 지원 버전은 macOS 13 |
 | Swift | Swift 6.1 이상을 지원하는 도구 모음 (`Package.swift` 기준) |
-| Apple 개발 도구 | Xcode 또는 호환되는 Command Line Tools |
+| Apple 개발 도구 | 앱 패키징은 macOS SDK 26.5 사용. CI는 Xcode 26.5, 로컬은 해당 SDK를 제공하는 Xcode 또는 Command Line Tools |
 | 셸 | zsh. 빌드 스크립트는 `zsh scripts/…`로 실행 |
 | Python | Python 3. 배포 검증은 표준 라이브러리만 사용 |
 | Git | 소스 관리 |
@@ -379,7 +379,9 @@ plutil -extract CFBundleVersion raw Resources/Info.plist
 
 개인키를 회사 Mac이나 앱 번들에 복사하지 않으며 키체인에 가져오지 않습니다. Releases 쓰기에는 워크플로의 `GITHUB_TOKEN`을 사용하므로 별도 개인 액세스 토큰은 필요 없습니다. 저장소·조직 정책에서 Actions 쓰기가 차단돼 있으면 해당 정책을 확인해야 합니다.
 
-워크플로는 `macos-15` 실행 환경에서 빌드합니다. 현재 빌드 스크립트는 실행 환경의 기본 CPU 아키텍처를 사용하며 Universal Binary를 별도로 만들지 않습니다. Intel Mac까지 배포 범위를 넓힐 때는 별도 아키텍처 빌드와 실제 실행 검증이 필요합니다.
+워크플로는 `macos-26` 실행 환경에서 `DEVELOPER_DIR`로 Xcode 26.5를 명시적으로 선택합니다. 로컬 패키징과 CI 모두 `scripts/check_build_sdk.sh`로 macOS SDK 26.5를 검증하며, 다르면 빌드를 중단합니다. 시스템 색상과 컨트롤 모양은 연결된 SDK에 따라 달라질 수 있으므로 SDK 변경 시 로컬·CI 설정을 함께 갱신하고 화면을 확인하세요. 로컬에서 `swift run`으로 실행하기 전에도 `zsh scripts/check_build_sdk.sh`로 환경을 확인할 수 있습니다.
+
+현재 빌드 스크립트는 실행 환경의 기본 CPU 아키텍처를 사용하며 Universal Binary를 별도로 만들지 않습니다. Intel Mac까지 배포 범위를 넓힐 때는 별도 아키텍처 빌드와 실제 실행 검증이 필요합니다.
 
 ### 결과물과 소스 버전의 관계
 
