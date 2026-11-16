@@ -31,17 +31,24 @@ jobs:
   release:
     # Stable releases require the default branch; testing accepts a manually selected branch.
     if: github.repository == 'ghwaKim/jibegaza_menubar' && (inputs.channel == 'testing' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     permissions:
       contents: write
     env:
       RELEASE_CHANNEL: ${{ inputs.channel }}
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
     steps:
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (Node.js 24)
         with:
           persist-credentials: false
+
+      - name: Verify build toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          zsh scripts/check_build_sdk.sh
 
       - name: Determine and validate next release version
         env:

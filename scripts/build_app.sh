@@ -107,6 +107,7 @@ DIST_EXPORT_IMAGE_PATH="$OUTPUT_DIR/앱_설치_가이드
 PACKAGE_DIR="$OUTPUT_DIR/$APP_NAME Package"
 
 echo "Building $BUILD_MODE package, version $APP_VERSION (build $BUILD_NUMBER)..."
+zsh "$ROOT_DIR/scripts/check_build_sdk.sh"
 swift build -c release --package-path "$ROOT_DIR"
 
 if [[ ! -f "$RELEASE_BINARY" ]]; then
