@@ -151,6 +151,7 @@ struct WeeklyTimeSlotField: View {
 
 struct BorderlessMenuPicker<Option: CaseIterable & Hashable & Identifiable>: View
 where Option.AllCases: RandomAccessCollection {
+    @Environment(\.isEnabled) private var isEnabled
     let selection: Binding<Option>
     let width: CGFloat
     let title: (Option) -> String
@@ -177,7 +178,7 @@ where Option.AllCases: RandomAccessCollection {
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(WorkControlColors.disabledBackground)
+                    .fill(isEnabled ? Color(nsColor: .windowBackgroundColor) : WorkControlColors.disabledBackground)
             )
         }
         .menuStyle(.button)

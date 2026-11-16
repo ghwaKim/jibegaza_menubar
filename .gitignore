@@ -2,5 +2,8 @@
 .DS_Store
 dist/
 
+# Local generated artifacts and recovery backups
+/outputs/
+
 __pycache__/
 *.pyc

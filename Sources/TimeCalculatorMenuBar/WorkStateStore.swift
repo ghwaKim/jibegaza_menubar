@@ -156,7 +156,26 @@ final class WorkStateStore {
         else {
             return defaultWeekData()
         }
-        return decoded
+        var repaired = decoded
+        var changed = false
+        for index in repaired.indices {
+            guard validatedManualWorkMinutes(hours: repaired[index].manualHours,
+                                             minutes: repaired[index].manualMinutes) == nil else { continue }
+            repaired[index].manualHours = ""
+            repaired[index].manualMinutes = ""
+            if repaired[index].mode == .manual {
+                repaired[index].isConfirmed = false
+                repaired[index].lockManual = false
+                repaired[index].isFlexAutoLocked = false
+                repaired[index].importedFromFlex = false
+            }
+            changed = true
+        }
+        if changed, let encoded = try? JSONEncoder().encode(repaired) {
+            defaults.set(data, forKey: "weekly.invalidInputBackup")
+            defaults.set(encoded, forKey: Keys.weeklyData)
+        }
+        return repaired
     }
 
     private static func loadAutoFillTarget(from defaults: UserDefaults) -> AutoFillTarget? {

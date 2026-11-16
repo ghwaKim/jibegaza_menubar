@@ -27,12 +27,12 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(config_module.display_label("1.4", "stable", "release"), "v1.4")
 
 
-    def publish(self, channel, exists=False, status="true"):
+    def publish(self, channel, exists=False, status="true", fail_upload=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "Resources").mkdir()
             (root / "scripts").mkdir()
-            for name in ("publish_release.sh", "validate_update.py", "release_config.py", "verify_update.swift"):
+            for name in ("publish_release.sh", "cleanup_testing_assets.py", "validate_update.py", "release_config.py", "verify_update.swift"):
                 shutil.copy(SCRIPTS / name, root / "scripts" / name)
             config = config_module.release_config("1.4", "5", channel)
             info = {"CFBundleIdentifier": "com.jibegaza.menubar", "CFBundleShortVersionString": "1.4",
@@ -58,11 +58,20 @@ class PublishReleaseTests(unittest.TestCase):
             binaries = root / "bin"
             binaries.mkdir()
             log = root / "commands"
-            (binaries / "gh").write_text(f'#!{sys.executable}\n' + '''import json, os, sys
+            (binaries / "gh").write_text(f'#!{sys.executable}\n' + '''import json, os, sys, shutil
 with open(os.environ["COMMAND_LOG"], "a") as f: f.write(json.dumps(sys.argv[1:]) + "\\n")
 if sys.argv[1:3] == ["release", "view"]:
-    if os.environ["EXISTS"] == "0": sys.exit(1)
-    if "--json" in sys.argv: print(os.environ["RELEASE_STATUS"])
+    if "--json" in sys.argv and "assets" in sys.argv[sys.argv.index("--json") + 1]:
+        print(json.dumps({"tagName": "testing", "isPrerelease": True, "isDraft": False,
+            "assets": [{"name": name, "state": "uploaded"} for name in
+                ["appcast.xml", "Jibegaza-MenuBar-1.4-test-build4.zip", "Jibegaza-MenuBar-1.4-test-build5.zip",
+                 "Jibegaza.MenuBar.v1.3.beta.zip", "Jibegaza.MenuBar.v1.4.beta.zip", "unrelated.zip"]]}))
+    else:
+        if os.environ["EXISTS"] == "0": sys.exit(1)
+        if "--json" in sys.argv: print(os.environ["RELEASE_STATUS"])
+if sys.argv[1:3] == ["release", "download"]:
+    shutil.copy(os.environ["TEST_FEED"], sys.argv[sys.argv.index("--output") + 1])
+if sys.argv[1:3] == ["release", "upload"] and os.environ["FAIL_UPLOAD"] == "1": sys.exit(1)
 ''')
             # Signature cryptography is tested separately; these stubs isolate command routing.
             (binaries / "swift").write_text('#!/bin/sh\nexit 0\n')
@@ -70,7 +79,8 @@ if sys.argv[1:3] == ["release", "view"]:
             for binary in binaries.iterdir():
                 binary.chmod(0o700)
             env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"],
-                       COMMAND_LOG=str(log), EXISTS="1" if exists else "0", RELEASE_STATUS=status)
+                       COMMAND_LOG=str(log), EXISTS="1" if exists else "0", RELEASE_STATUS=status,
+                       TEST_FEED=str(output / "appcast.xml"), FAIL_UPLOAD="1" if fail_upload else "0")
             result = subprocess.run(["zsh", str(root / "scripts/publish_release.sh")],
                                     env=env, text=True, capture_output=True)
             commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -97,6 +107,20 @@ if sys.argv[1:3] == ["release", "view"]:
         self.assertTrue(uploads[1][3].endswith("Jibegaza MenuBar v1.4 (beta).zip"))
         self.assertTrue(uploads[2][3].endswith("appcast.xml"))
         self.assertIn("--clobber", uploads[2])
+
+    def test_testing_prunes_only_old_testing_zips_after_publishing(self):
+        result, commands = self.publish("testing", exists=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        deletes = [c for c in commands if c[:2] == ["release", "delete-asset"]]
+        self.assertEqual({c[3] for c in deletes},
+                         {"Jibegaza-MenuBar-1.4-test-build4.zip", "Jibegaza.MenuBar.v1.3.beta.zip"})
+        edit_index = max(i for i, c in enumerate(commands) if c[:2] == ["release", "edit"])
+        self.assertTrue(all(commands.index(c) > edit_index for c in deletes))
+
+    def test_failed_upload_never_deletes_existing_assets(self):
+        result, commands = self.publish("testing", exists=True, fail_upload=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(c[:2] == ["release", "delete-asset"] for c in commands))
 
     def test_testing_refuses_to_modify_a_non_prerelease(self):
         result, commands = self.publish("testing", exists=True, status="false")

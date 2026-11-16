@@ -78,15 +78,22 @@ func getLunchOverlapMinutes(start: Int, end: Int) -> Int {
     max(0, min(end, lunchEndMinutes) - max(start, lunchStartMinutes))
 }
 
+// Validate before multiplication, including records saved before input limits.
+func validatedManualWorkMinutes(hours: String, minutes: String) -> Int? {
+    guard let hours = hours.isEmpty ? 0 : Int(hours),
+          let minutes = minutes.isEmpty ? 0 : Int(minutes),
+          (0...24).contains(hours), (0...99).contains(minutes),
+          hours * 60 + minutes <= 24 * 60 else { return nil }
+    return hours * 60 + minutes
+}
+
 func getWorkMinutes(_ data: DayWorkData) -> Int {
     if data.leaveType == .annual {
         return 0
     }
 
     if data.mode == .manual {
-        let hours = Int(data.manualHours) ?? 0
-        let minutes = Int(data.manualMinutes) ?? 0
-        return max(0, hours * 60 + minutes)
+        return validatedManualWorkMinutes(hours: data.manualHours, minutes: data.manualMinutes) ?? 0
     }
 
     let start = timeToMinutes(data.start)
