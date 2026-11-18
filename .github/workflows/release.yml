@@ -68,9 +68,7 @@ jobs:
         run: zsh scripts/setup_updates.sh "$SPARKLE_PUBLIC_KEY"
 
       - name: Run tests
-        run: |
-          python3 -m unittest discover -s scripts/tests -v
-          zsh scripts/test.sh
+        run: zsh scripts/check.sh
 
       - name: Build, sign, validate and publish
         shell: bash

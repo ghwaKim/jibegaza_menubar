@@ -955,7 +955,9 @@ final class TimeCalculatorViewModel: ObservableObject {
         guard let minutes = Int(filtered) else {
             return filtered
         }
-        return String(format: "%02d", min(59, minutes))
+        // Preserve partial input: padding "3" to "03" would prevent typing
+        // the next digit under the field editor's two-digit limit.
+        return minutes > 59 ? "59" : filtered
     }
 
     private func selection(for minutes: Int) -> TodayTargetSelection {

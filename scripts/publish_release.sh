@@ -11,8 +11,7 @@ ARCHIVE="$(plutil -extract JibegazaUpdateArchive raw "$ROOT_DIR/Resources/Info.p
 ZIP="$UPDATE_DIR/$ARCHIVE"
 FEED="$UPDATE_DIR/appcast.xml"
 DISPLAY_VERSION="$(plutil -extract JibegazaDisplayVersion raw "$ROOT_DIR/Resources/Info.plist")"
-SHARE_ZIP="$ROOT_DIR/dist/Jibegaza MenuBar $DISPLAY_VERSION.zip"
-if [[ ! -f "$ZIP" || ! -f "$FEED" || ! -f "$SHARE_ZIP" ]]; then
+if [[ ! -f "$ZIP" || ! -f "$FEED" ]]; then
   echo "First run zsh scripts/build_app.sh --release." >&2
   exit 1
 fi
@@ -23,8 +22,7 @@ fi
 # Validate that the feed and bundle still describe this build before uploading.
 python3 "$ROOT_DIR/scripts/validate_update.py" "$ZIP" "$FEED" "$ROOT_DIR/Resources/Info.plist"
 if [[ "$CHANNEL" == "testing" ]]; then
-  # A persistent Pre-release holds the testing feed. Unique ZIP names keep the
-  # previous feed usable until the new archive has finished uploading.
+  # Publish the combined installation ZIP before switching the signed feed.
   NOTES_FILE="$UPDATE_DIR/testing-notes.md"
   COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
   cat > "$NOTES_FILE" <<NOTES
@@ -39,25 +37,23 @@ NOTES
       echo "The testing release must be a published Pre-release. Inspect it before retrying." >&2
       exit 1
     fi
-    gh release upload testing "$ZIP" --repo ghwaKim/jibegaza_menubar
-    gh release upload testing "$SHARE_ZIP" --repo ghwaKim/jibegaza_menubar --clobber
+    gh release upload testing "$ZIP" --repo ghwaKim/jibegaza_menubar --clobber
     gh release upload testing "$FEED" --repo ghwaKim/jibegaza_menubar --clobber
     gh release edit testing --repo ghwaKim/jibegaza_menubar --prerelease --latest=false \
       --title "Testing: v$VERSION (build $BUILD)" --notes-file "$NOTES_FILE"
   else
-    gh release create testing "$ZIP" "$FEED" "$SHARE_ZIP" --repo ghwaKim/jibegaza_menubar \
+    gh release create testing "$ZIP" "$FEED" --repo ghwaKim/jibegaza_menubar \
       --target "$COMMIT" --title "Testing: v$VERSION (build $BUILD)" \
       --notes-file "$NOTES_FILE" --draft --prerelease --latest=false
     gh release edit testing --repo ghwaKim/jibegaza_menubar --draft=false --prerelease --latest=false
   fi
-  # Keep the new feed and both current ZIPs; prune only after publication succeeds.
-  python3 "$ROOT_DIR/scripts/cleanup_testing_assets.py" "$ARCHIVE" "${SHARE_ZIP:t}"
+  python3 "$ROOT_DIR/scripts/cleanup_release_assets.py" testing "$ARCHIVE" "$BUILD"
 elif [[ "$CHANNEL" == "stable" ]]; then
   if [[ "${RELEASE_REPLACE_EXISTING:-false}" == "true" ]]; then
-    python3 "$ROOT_DIR/scripts/replace_release.py" "$ZIP" "$FEED" "$SHARE_ZIP" "$ROOT_DIR/Resources/Info.plist"
+    python3 "$ROOT_DIR/scripts/replace_release.py" "$ZIP" "$FEED" "$ROOT_DIR/Resources/Info.plist"
     exit 0
   fi
-  gh release create "$TAG" "$ZIP" "$FEED" "$SHARE_ZIP" \
+  gh release create "$TAG" "$ZIP" "$FEED" \
     --repo ghwaKim/jibegaza_menubar \
     --target "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
     --title "Jibegaza MenuBar v$VERSION" --generate-notes --draft

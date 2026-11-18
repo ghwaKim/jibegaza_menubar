@@ -1,4 +1,4 @@
-"""Replace the latest stable build, retaining its release URL, notes and old update ZIPs."""
+"""Replace the latest stable build, retaining its release URL and notes."""
 import json
 import pathlib
 import plistlib
@@ -12,7 +12,7 @@ def run(*args):
     subprocess.run(["gh", *args], check=True)
 
 
-def replace(archive, feed, shared_archive, source):
+def replace(archive, feed, source):
     info = plistlib.loads(source.read_bytes())
     if info.get("JibegazaReleaseChannel") != "stable" or not info.get("JibegazaReplaceExisting"):
         raise ValueError("Expected a stable replacement bundle")
@@ -32,19 +32,17 @@ def replace(archive, feed, shared_archive, source):
     if old_ref["object"]["type"] != "commit":
         raise ValueError("Replacement requires a lightweight tag")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    if any(a["name"] == archive.name for a in release["assets"]):
-        raise ValueError("This build archive already exists; use a new build number")
-
-    # A unique archive keeps the old signed feed usable throughout upload and after
-    # replacement (clients may have cached that feed). Never remove old update ZIPs.
-    run("release", "upload", tag, str(archive), "--repo", REPOSITORY)
-    run("release", "upload", tag, str(shared_archive), "--repo", REPOSITORY, "--clobber")
+    # Reusing one human-facing filename means a cached old feed may briefly fail
+    # signature verification until the client checks for updates again.
+    run("release", "upload", tag, str(archive), "--repo", REPOSITORY, "--clobber")
     if api(ref_path)["object"] != old_ref["object"]:
         raise ValueError("Release tag changed during upload; refusing to move it")
     run("api", "--method", "PATCH", ref_path, "-f", f"sha={commit}", "-F", "force=true")
     run("release", "upload", tag, str(feed), "--repo", REPOSITORY, "--clobber")
     # Do not regenerate the maintainer's release title or notes.
     run("release", "edit", tag, "--repo", REPOSITORY, "--target", commit, "--latest")
+    from cleanup_release_assets import cleanup
+    cleanup(tag, archive.name, build)
 
 
 if __name__ == "__main__":

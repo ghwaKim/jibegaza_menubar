@@ -32,7 +32,7 @@ class PublishReleaseTests(unittest.TestCase):
             root = Path(directory)
             (root / "Resources").mkdir()
             (root / "scripts").mkdir()
-            for name in ("publish_release.sh", "cleanup_testing_assets.py", "validate_update.py", "release_config.py", "verify_update.swift"):
+            for name in ("publish_release.sh", "cleanup_release_assets.py", "validate_update.py", "release_config.py", "verify_update.swift"):
                 shutil.copy(SCRIPTS / name, root / "scripts" / name)
             config = config_module.release_config("1.4", "5", channel)
             info = {"CFBundleIdentifier": "com.jibegaza.menubar", "CFBundleShortVersionString": "1.4",
@@ -47,7 +47,7 @@ class PublishReleaseTests(unittest.TestCase):
             archive = output / config["archive"]
             with zipfile.ZipFile(archive, "w") as bundle:
                 bundle.writestr("Jibegaza MenuBar.app/Contents/Info.plist", plistlib.dumps(info))
-            shutil.copy(archive, root / "dist" / f"Jibegaza MenuBar {info['JibegazaDisplayVersion']}.zip")
+                bundle.writestr("guide.png", b"installation guide")
             signature = base64.b64encode(bytes(64)).decode()
             (output / "appcast.xml").write_text(
                 '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>'
@@ -102,19 +102,18 @@ if sys.argv[1:3] == ["release", "upload"] and os.environ["FAIL_UPLOAD"] == "1": 
         result, commands = self.publish("testing", exists=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         uploads = [command for command in commands if command[:2] == ["release", "upload"]]
-        self.assertEqual(len(uploads), 3)
-        self.assertTrue(uploads[0][3].endswith("-test-build5.zip"))
-        self.assertNotIn("--clobber", uploads[0])
-        self.assertTrue(uploads[1][3].endswith("Jibegaza MenuBar v1.4 (beta).zip"))
-        self.assertTrue(uploads[2][3].endswith("appcast.xml"))
-        self.assertIn("--clobber", uploads[2])
+        self.assertEqual(len(uploads), 2)
+        self.assertTrue(uploads[0][3].endswith("Jibegaza.MenuBar.v1.4.beta.zip"))
+        self.assertIn("--clobber", uploads[0])
+        self.assertTrue(uploads[1][3].endswith("appcast.xml"))
+        self.assertIn("--clobber", uploads[1])
 
     def test_testing_prunes_only_old_testing_zips_after_publishing(self):
         result, commands = self.publish("testing", exists=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         deletes = [c for c in commands if c[:2] == ["release", "delete-asset"]]
         self.assertEqual({c[3] for c in deletes},
-                         {"Jibegaza-MenuBar-1.4-test-build4.zip", "Jibegaza.MenuBar.v1.3.beta.zip"})
+                         {"Jibegaza-MenuBar-1.4-test-build4.zip", "Jibegaza-MenuBar-1.4-test-build5.zip", "Jibegaza.MenuBar.v1.3.beta.zip"})
         edit_index = max(i for i, c in enumerate(commands) if c[:2] == ["release", "edit"])
         self.assertTrue(all(commands.index(c) > edit_index for c in deletes))
 
@@ -133,6 +132,7 @@ if sys.argv[1:3] == ["release", "upload"] and os.environ["FAIL_UPLOAD"] == "1": 
         self.assertEqual(result.returncode, 0, result.stderr)
         create = next(command for command in commands if command[:2] == ["release", "create"])
         self.assertEqual(create[2], "v1.4")
-        self.assertTrue(any(value.endswith("Jibegaza MenuBar v1.4.zip") for value in create))
+        self.assertTrue(any(value.endswith("Jibegaza.MenuBar.v1.4.zip") for value in create))
+        self.assertEqual(len([v for v in create if v.endswith(".zip")]), 1)
         self.assertNotIn("--prerelease", create)
         self.assertIn("--latest", commands[-1])

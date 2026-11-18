@@ -10,7 +10,7 @@ def release_config(version, build, channel, replace_existing=False):
     testing = channel == "testing"
     return {
         "tag": TESTING_TAG if testing else f"v{version}",
-        "archive": f"Jibegaza-MenuBar-{version}" + (f"-test-build{build}" if testing else f"-build{build}" if replace_existing else "") + ".zip",
+        "archive": f"Jibegaza.MenuBar.v{version}" + (".beta" if testing else "") + ".zip",
         "feed": f"{BASE_URL}/download/{TESTING_TAG}/appcast.xml" if testing else f"{BASE_URL}/latest/download/appcast.xml",
     }
 

@@ -11,6 +11,13 @@ import zipfile
 def validate(archive, feed, source_plist):
     namespace = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
     with zipfile.ZipFile(archive) as bundle:
+        guides = [name for name in bundle.namelist() if "/" not in name and name.endswith(".png")]
+        if len(guides) != 1 or not bundle.read(guides[0]):
+            raise ValueError("Expected one installation guide image beside the app")
+        app_plists = [name for name in bundle.namelist() if not name.startswith("__MACOSX/")
+                      and name.endswith(".app/Contents/Info.plist") and "/Frameworks/" not in name]
+        if app_plists != ["Jibegaza MenuBar.app/Contents/Info.plist"]:
+            raise ValueError("Expected one top-level Jibegaza app")
         info = plistlib.loads(bundle.read("Jibegaza MenuBar.app/Contents/Info.plist"))
     source = plistlib.loads(source_plist.read_bytes())
     for key in ("CFBundleIdentifier", "CFBundleVersion", "CFBundleShortVersionString", "SUPublicEDKey", "SUFeedURL"):
