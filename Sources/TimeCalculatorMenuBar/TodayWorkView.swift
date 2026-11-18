@@ -129,6 +129,12 @@ struct TodayWorkView: View {
                 }
             }
 
+            if viewModel.shouldShowManualTargetInputs {
+                Text("최대 9시간 · 휴게시간 제외")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if viewModel.shouldShowTodayTargetGuideText, let guideText = viewModel.todayTargetGuideText {
                 Text(guideText)
                     .font(.caption)

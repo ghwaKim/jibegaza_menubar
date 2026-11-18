@@ -69,7 +69,7 @@ final class TimeCalculatorViewModel: ObservableObject {
         todayTargetGuideText = nil
         autoFillTarget = saved.autoFillTarget
         excludedAutoFillIndexes = saved.excludedAutoFillIndexes
-        manualOverrideTargetMinutes = today.manualOverrideTargetMinutes
+        manualOverrideTargetMinutes = today.manualOverrideTargetMinutes.map { min(maxDailyMinutes, max(0, $0)) }
         isManualTargetSelectionActive = today.isManualTargetSelectionActive
         autoSuggestedTargetMinutes = nil
         store.recordedWeekStart = recordedWeekStart
@@ -703,7 +703,7 @@ final class TimeCalculatorViewModel: ObservableObject {
     }
 
     private func syncManualTargetFromTimes() {
-        let minutes = todayCalculator.workMinutes(start: startTime, end: endTime)
+        let minutes = min(maxDailyMinutes, todayCalculator.workMinutes(start: startTime, end: endTime))
         manualOverrideTargetMinutes = minutes
         targetWorkMinutes = minutes
         todayTargetMode = .manualOverride
@@ -850,7 +850,10 @@ final class TimeCalculatorViewModel: ObservableObject {
             return
         }
 
-        manualOverrideTargetMinutes = manualMinutes
+        manualOverrideTargetMinutes = min(manualMinutes, maxDailyMinutes)
+        if manualMinutes > maxDailyMinutes {
+            syncTodayTargetInputs(with: maxDailyMinutes)
+        }
         lastEditedField = .startTime
         refreshTodayTargetFromCurrentContext(syncInputFields: false)
         alignTimesUsingLastEditedField()
