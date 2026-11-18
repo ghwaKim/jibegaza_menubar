@@ -4,6 +4,30 @@ import Testing
 
 @MainActor
 struct TodayTests {
+    @Test func manualMinutesCanBeTypedDigitByDigitAfterNineHourTarget() {
+        let vm = model(now: date(12))
+        vm.updateTodayTargetSelection(.nineHours)
+        vm.updateTodayTargetSelection(.manual)
+        #expect(vm.targetInputHours == "9")
+        #expect(vm.targetInputMinutes == "00")
+        vm.updateTodayManualTargetHours("8")
+        vm.updateTodayManualTargetMinutes("")
+        vm.updateTodayManualTargetMinutes("3")
+        #expect(vm.targetInputMinutes == "3")
+        let nextInput = vm.targetInputMinutes + "0"
+        #expect(TimeDigitsFormatter(maximumDigits: 2).accepts(nextInput))
+        vm.updateTodayManualTargetMinutes(nextInput)
+        #expect(vm.targetInputMinutes == "30")
+        #expect(vm.targetWorkMinutes == 8 * 60 + 30)
+        vm.updateTodayManualTargetMinutes("3")
+        #expect(vm.targetInputMinutes == "3")
+        vm.updateTodayManualTargetMinutes("")
+        #expect(vm.targetInputMinutes.isEmpty)
+        vm.updateTodayManualTargetMinutes("05")
+        #expect(vm.targetInputMinutes == "05")
+        #expect(vm.targetWorkMinutes == 8 * 60 + 5)
+    }
+
     @Test func manualTargetLimitsHoursToOneDigitAndMinutesToTwo() {
         let vm = model(now: date(12))
         vm.updateTodayTargetSelection(.manual)

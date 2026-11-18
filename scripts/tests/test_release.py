@@ -154,7 +154,7 @@ class ReleaseTests(unittest.TestCase):
     def test_feed_must_match_exact_bundle_and_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            archive = root / "Jibegaza-MenuBar-1.4.zip"
+            archive = root / "Jibegaza.MenuBar.v1.4.zip"
             source = root / "Info.plist"
             feed = root / "appcast.xml"
             info = {"CFBundleIdentifier": "com.jibegaza.menubar", "CFBundleVersion": "5",
@@ -163,6 +163,7 @@ class ReleaseTests(unittest.TestCase):
             source.write_bytes(plistlib.dumps(info))
             with zipfile.ZipFile(archive, "w") as bundle:
                 bundle.writestr("Jibegaza MenuBar.app/Contents/Info.plist", plistlib.dumps(info))
+                bundle.writestr("guide.png", b"installation guide")
             signature = base64.b64encode(bytes(64)).decode()
             xml = f'''<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>
                 <sparkle:version>5</sparkle:version><enclosure

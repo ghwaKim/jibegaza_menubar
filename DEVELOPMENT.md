@@ -25,7 +25,17 @@
 
 교체 대상은 최신의 수정 가능한 정식 릴리스만 허용합니다. 버전 생략, 이전 버전 교체, draft·Pre-release 교체 및 빌드 번호 재사용은 거부합니다. 릴리스 주소·제목·설명은 유지하고 기존 태그를 이번 빌드 커밋으로 옮깁니다. 로컬 태그 충돌이 발생하면 원격 기준으로 갱신하세요.
 
-새 업데이트 ZIP은 `Jibegaza-MenuBar-1.4-build11.zip`처럼 빌드 번호를 포함합니다. 이 ZIP과 공유용 ZIP 업로드 후 태그와 피드를 갱신합니다. 이전 업데이트 ZIP은 캐시된 피드의 다운로드를 위해 유지합니다. 여러 GitHub API 호출로 진행하므로 전체 작업이 원자적이지는 않습니다. 중간 실패 시 업로드된 파일과 태그·피드를 확인한 후 더 높은 빌드 번호로 다시 실행하세요. 기존 테스트 앱의 업데이트 채널은 자동으로 정식으로 바뀌지 않으므로 정식 앱을 직접 설치해야 합니다.
+앱과 설치 가이드 이미지가 들어 있는 `Jibegaza.MenuBar.v1.4.zip` 하나를 직접 설치와 자동 업데이트에 함께 사용합니다. 빌드 번호는 앱과 피드 내부에서 관리하며 ZIP 이름에는 붙이지 않습니다. ZIP 업로드 후 태그와 피드를 갱신하고 공개 피드의 URL·빌드와 현재 파일의 업로드 완료를 확인한 다음, 이전 형식의 ZIP을 정리합니다.
+
+여러 GitHub API 호출로 진행하므로 전체 작업이 원자적이지는 않습니다. 같은 이름의 ZIP을 덮어쓰기 때문에 이전 피드를 확인해 둔 앱은 다운로드·서명 검증에 실패할 수 있으며 이때 업데이트를 다시 확인해야 합니다. 중간 실패 시 업로드된 파일과 태그·피드를 확인한 후 더 높은 빌드 번호로 다시 실행하세요. 기존 테스트 앱의 업데이트 채널은 자동으로 정식으로 바뀌지 않으므로 정식 앱을 직접 설치해야 합니다.
+
+## PR 필수 검사
+
+`.github/workflows/pr-checks.yml`은 `main` 대상 PR, `main` 푸시 및 merge queue에서 `Tests and release package` 검사를 실행합니다. `scripts/check.sh`를 릴리스 CI와 공통으로 사용해 SDK 검증, Python 배포 테스트, Swift 테스트, 실제 release 최적화 빌드와 ZIP·피드 서명 검증을 수행합니다. 정식·테스트·교체 배포 구성을 공개 RFC 8032 테스트 키로 임시 프로젝트에서 검증하며 실제 배포 키나 GitHub 쓰기 권한은 사용하지 않습니다. 개발 작업 폴더의 `Info.plist`도 변경하지 않습니다.
+
+워크플로 파일만 추가하면 실패해도 관리자가 병합할 수 있습니다. GitHub Settings → Rules → Rulesets에서 기본 브랜치에 `Require a pull request before merging`과 `Require status checks to pass`를 적용하고, `Tests and release package`를 필수 검사로 지정해야 합니다. 규칙은 Active로 켜고 bypass 목록은 비워두세요. 필수 승인 수는 0으로 두어도 테스트 통과 요구는 유지됩니다. 최신 기본 브랜치 코드와 함께 검증하려면 `Require branches to be up to date before merging`도 켜세요. 워크플로 job 이름을 바꿀 때는 필수 검사 이름도 함께 변경해야 합니다.
+
+로컬에서도 `zsh scripts/check.sh`로 동일 검사를 실행할 수 있습니다. 이 검사는 실제 GitHub 업로드 권한, 운영 서명 키 설정 및 업데이트 설치·재실행까지 검증하지는 않습니다.
 
 ## 개발 환경
 
@@ -85,7 +95,7 @@ swift build
 | `Resources/Info.plist` | 앱 식별자, 버전, 업데이트 URL과 공개키 |
 | `Resources/AppIcon.icns` | 앱 번들 아이콘 |
 | `scripts/test.sh` | 환경에 맞는 Swift 테스트 실행 |
-| `scripts/build_app.sh` | `.app` 조립, 공유 ZIP 및 업데이트 파일 생성 |
+| `scripts/build_app.sh` | `.app` 조립, 설치·업데이트 공용 ZIP 및 피드 생성 |
 | `scripts/setup_updates.sh` | 기존 키와 충돌하지 않는 공개키 설정 |
 | `scripts/check_release.py` | Actions 배포 전 버전·빌드·기존 릴리스 검사 |
 | `scripts/validate_update.py`, `scripts/verify_update.swift` | 번들·피드·다운로드 파일 일치 및 공개키 서명 검증 |
@@ -157,15 +167,15 @@ open "dist/test/Jibegaza MenuBar.app"
 
 이 명령은 **release 최적화로 컴파일**하되, 테스트 공유용으로 패키징합니다. `--test`는 Swift의 debug 빌드를 의미하지 않습니다.
 
-앱 헤더와 공유 ZIP 파일명은 같은 표시 규칙을 사용합니다. `swift run`과 로컬 `--test`는 `(Local beta)`, Actions testing 배포는 `v1.4 (beta)`, stable 배포는 `v1.4`처럼 표시합니다. 내부 버전·빌드 번호와 업데이트 피드는 표시 이름과 별도로 유지됩니다.
+앱 헤더는 `swift run`과 로컬 `--test`에서 `(Local beta)`, Actions testing 배포에서 `v1.4 (beta)`, stable 배포에서 `v1.4`처럼 표시합니다. 배포 ZIP 이름은 GitHub 다운로드 URL과 일치하도록 공백 없는 이름을 사용합니다. 내부 버전·빌드 번호와 업데이트 피드는 표시 이름과 별도로 유지됩니다.
 
 | 구분 | 앱 헤더 | 공유 ZIP |
 | --- | --- | --- |
 | 로컬 (`swift run`, `--test`) | `(Local beta)` | `Jibegaza MenuBar (Local beta).zip` (`swift run`은 ZIP 생성 없음) |
-| Pre-release (`testing --release`) | `v1.4 (beta)` | `Jibegaza MenuBar v1.4 (beta).zip` |
-| Latest (`stable --release`) | `v1.4` | `Jibegaza MenuBar v1.4.zip` |
+| Pre-release (`testing --release`) | `v1.4 (beta)` | `Jibegaza.MenuBar.v1.4.beta.zip` |
+| Latest (`stable --release`) | `v1.4` | `Jibegaza.MenuBar.v1.4.zip` |
 
-공유 ZIP은 같은 표시 버전으로 다시 빌드하면 같은 파일을 덮어씁니다. 업데이트용 ZIP은 별도 이름으로 빌드마다 보관합니다.
+ZIP은 같은 표시 버전으로 다시 빌드하면 같은 파일을 덮어씁니다. 배포 시 이 ZIP을 그대로 서명해 자동 업데이트에도 사용하며, 앱만 들어 있는 별도 ZIP은 생성하지 않습니다.
 
 | 항목 | 테스트 빌드 동작 |
 | --- | --- |
@@ -334,7 +344,7 @@ RELEASE_CHANNEL=testing RELEASE_VERSION=1.4 RELEASE_BUILD_NUMBER=4 \
 4. 소스가 1.3 / 4이고 기존 배포가 없다면 1.4 / 5로 결정됩니다. 두 번째 실행은 1.4 / 6입니다. 정식 1.4가 이미 배포됐다면 다음 테스트 버전은 1.5입니다.
 5. 기존 테스트 앱에서 업데이트 확인을 누르고 새 빌드 설치·재실행을 확인합니다.
 
-`testing` Pre-release는 매번 새로 생성하지 않고 재사용합니다. 새 업데이트 ZIP과 공유 ZIP을 업로드한 뒤 `appcast.xml`을 교체합니다. 배포 완료 후 공개 피드가 새 업데이트 ZIP을 가리키고 현재 파일이 모두 업로드되었는지 확인한 다음, 이전 테스트 업데이트 ZIP과 이전 버전 공유 ZIP을 삭제합니다. 최신 업데이트 ZIP·공유 ZIP·피드만 유지하며 정식 릴리스는 정리하지 않습니다. 이전 피드를 확인해 둔 앱의 다운로드가 실패하면 업데이트를 다시 확인해주세요.
+`testing` Pre-release는 매번 새로 생성하지 않고 재사용합니다. 앱과 가이드가 포함된 ZIP 하나를 업로드한 뒤 `appcast.xml`을 교체합니다. 배포 완료 후 공개 피드의 URL과 빌드 번호가 이번 배포와 일치하고 현재 파일이 업로드되었는지 확인한 다음, 이전 테스트 ZIP을 삭제합니다. 최신 설치 ZIP 하나와 피드만 유지합니다. 이전 피드를 확인해 둔 앱의 다운로드·검증이 실패하면 업데이트를 다시 확인해주세요.
 
 `testing` 태그는 피드의 고정 주소용입니다. 매번 Git 태그를 옮기지 않으므로 테스트한 실제 소스 커밋은 릴리스 설명의 소스 링크와 Actions 실행 기록으로 확인합니다. 테스트 배포는 정식 릴리스의 설명을 생성하기 위한 기준으로 사용하지 않는 것이 좋습니다.
 
@@ -378,11 +388,11 @@ plutil -extract CFBundleVersion raw Resources/Info.plist
 1. 선택한 커밋을 체크아웃합니다.
 2. 기존 릴리스·피드와 소스의 값을 읽어 다음 버전·빌드를 자동 결정하고 중복·역행을 검사합니다. 결정된 값을 이후 빌드 단계와 실행 Summary에 전달합니다. 공개 저장소인지도 검사합니다.
 3. `SPARKLE_PUBLIC_KEY`를 앱 설정에 적용합니다.
-4. Python 배포 검증 테스트와 Swift 테스트를 실행합니다.
+4. PR과 동일한 `scripts/check.sh`로 Python·Swift 테스트와 실제 패키징·서명 검증을 실행합니다.
 5. 개인키를 실행 환경의 `RUNNER_TEMP`에 접근 권한이 제한된 임시 파일로 기록합니다.
 6. 앱 빌드, 프레임워크 포함, ad-hoc 서명, 업데이트 ZIP·피드 생성을 진행합니다.
 7. 번들 정보·파일 크기·URL을 대조하고, 앱에 넣은 공개키로 ZIP 서명을 검증합니다.
-8. 업데이트 ZIP·피드·공유 ZIP을 릴리스에 업로드합니다.
+8. 앱과 가이드가 포함된 공용 ZIP 하나와 피드를 릴리스에 업로드합니다.
 9. 업로드가 끝나면 릴리스를 공개하고 최신 릴리스로 지정합니다. 서명 단계 종료 시 개인키 임시 파일을 삭제합니다.
 
 개인키를 회사 Mac이나 앱 번들에 복사하지 않으며 키체인에 가져오지 않습니다. Releases 쓰기에는 워크플로의 `GITHUB_TOKEN`을 사용하므로 별도 개인 액세스 토큰은 필요 없습니다. 저장소·조직 정책에서 Actions 쓰기가 차단돼 있으면 해당 정책을 확인해야 합니다.
@@ -397,11 +407,11 @@ plutil -extract CFBundleVersion raw Resources/Info.plist
 
 ```text
 GitHub Release v1.4
-├── Jibegaza-MenuBar-1.4.zip
+├── Jibegaza.MenuBar.v1.4.zip
 └── appcast.xml
 ```
 
-업데이트 ZIP은 앱만 포함합니다. 로컬 빌드 시 생성되는 설치 안내 이미지 포함 공유 ZIP과 다릅니다. Actions는 위 두 파일에 공유 ZIP `Jibegaza MenuBar v1.4.zip`도 함께 업로드합니다. testing에서는 공유 ZIP을 `Jibegaza MenuBar v1.4 (beta).zip`으로 올리고, 같은 버전의 다음 테스트 배포에서 공유 ZIP만 덮어씁니다. 업데이트용 ZIP은 고유한 빌드 이름을 유지합니다. GitHub가 자동으로 표시하는 Source code ZIP은 실행용 앱이 아닙니다.
+ZIP에는 최상위에 앱과 설치 가이드 이미지가 들어 있습니다. 같은 파일을 직접 설치와 Sparkle 자동 업데이트에 사용합니다. testing에서는 `Jibegaza.MenuBar.v1.4.beta.zip`을 사용합니다. 빌드 번호는 앱과 피드 내부에서 증가합니다. `appcast.xml`은 자동 업데이트에 필요하므로 유지합니다. GitHub가 자동으로 표시하는 Source code ZIP은 실행용 앱이 아니며 스크립트 업로드 파일 수에는 포함하지 않습니다.
 
 Actions에서 자동 결정하거나 직접 지정한 버전·빌드는 해당 실행의 앱과 피드에 적용됩니다. 워크플로가 수정한 `Info.plist`를 소스에 커밋·푸시하지는 않습니다. 릴리스 태그는 체크아웃한 소스 커밋을 가리키므로, 나중에 같은 버전을 재현하려면 실행 Summary에 남은 버전·빌드도 함께 확인합니다. 다음 실행도 입력을 비워두면 실제 배포 이력을 기준으로 증가합니다. 소스 버전 파일을 매번 수동으로 갱신할 필요가 없습니다.
 
@@ -433,9 +443,9 @@ zsh scripts/build_app.sh --release
 ```text
 dist/
 ├── Jibegaza MenuBar.app
-├── Jibegaza MenuBar v1.4.zip         # 안내 이미지 포함 공유용
+├── Jibegaza.MenuBar.v1.4.zip        # 앱 + 안내 이미지
 └── updates/5/
-    ├── Jibegaza-MenuBar-1.4.zip      # 앱만 포함하는 업데이트용
+    ├── Jibegaza.MenuBar.v1.4.zip    # 위 ZIP과 동일한 서명 대상
     └── appcast.xml
 ```
 
@@ -451,12 +461,12 @@ zsh scripts/publish_release.sh
 
 ```sh
 python3 scripts/validate_update.py \
-  "dist/updates/5/Jibegaza-MenuBar-1.4.zip" \
+  "dist/updates/5/Jibegaza.MenuBar.v1.4.zip" \
   "dist/updates/5/appcast.xml" \
   Resources/Info.plist
 ```
 
-`publish_release.sh`도 결과물을 다시 검증하고 초안 생성·업로드·공개를 수행합니다. 같은 버전 릴리스를 덮어쓰지 않습니다. 공개된 버전의 앱 파일을 나중에 바꿔 끼우지 말고 수정 버전을 새 번호로 배포하세요.
+`publish_release.sh`도 결과물을 다시 검증하고 초안 생성·업로드·공개를 수행합니다. 기본적으로 같은 버전은 거부하며, 교체 배포 시에만 명시적으로 `RELEASE_REPLACE_EXISTING=true`를 빌드와 게시 양쪽에 적용합니다. 빌드 번호는 항상 증가해야 합니다.
 
 ## 업데이트 동작 검증
 

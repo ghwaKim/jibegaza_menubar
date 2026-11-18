@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import replace_release
+import cleanup_release_assets
 from release_config import release_config
 
 
@@ -39,21 +40,24 @@ class ReplaceReleaseTests(unittest.TestCase):
             with patch.object(replace_release, "api", side_effect=api), \
                  patch.object(replace_release, "resolve_numbers"), \
                  patch.object(replace_release.subprocess, "check_output", side_effect=["[[]]", "new"]), \
-                 patch.object(replace_release, "run", side_effect=run):
+                 patch.object(replace_release, "run", side_effect=run), \
+                 patch.object(cleanup_release_assets, "cleanup") as cleanup:
                 try:
-                    replace_release.replace(root / "update-build11.zip", root / "appcast.xml", root / "shared.zip", source)
+                    replace_release.replace(root / "Jibegaza.MenuBar.v1.4.zip", root / "appcast.xml", source)
+                    cleanup.assert_called_once_with("v1.4", "Jibegaza.MenuBar.v1.4.zip", "11")
                 except (ValueError, subprocess.CalledProcessError) as error:
+                    cleanup.assert_not_called()
                     return calls, error
         return calls, None
 
-    def test_replacement_uploads_unique_zip_before_feed_and_keeps_notes_and_old_assets(self):
-        self.assertEqual(release_config("1.4", "11", "stable", True)["archive"], "Jibegaza-MenuBar-1.4-build11.zip")
+    def test_replacement_uploads_one_installation_zip_before_feed_and_keeps_notes(self):
+        self.assertEqual(release_config("1.4", "11", "stable", True)["archive"], "Jibegaza.MenuBar.v1.4.zip")
         calls, error = self.exercise()
         self.assertIsNone(error)
-        self.assertTrue(calls[0][3].endswith("update-build11.zip"))
-        self.assertNotIn("--clobber", calls[0])
-        self.assertTrue(calls[3][3].endswith("appcast.xml"))
-        self.assertIn("--clobber", calls[3])
+        self.assertTrue(calls[0][3].endswith("Jibegaza.MenuBar.v1.4.zip"))
+        self.assertIn("--clobber", calls[0])
+        self.assertTrue(calls[2][3].endswith("appcast.xml"))
+        self.assertIn("--clobber", calls[2])
         self.assertFalse(any("delete" in c or "delete-asset" in c or "--generate-notes" in c for c in calls))
 
     def test_archive_failure_does_not_move_tag_or_replace_feed(self):
@@ -69,4 +73,4 @@ class ReplaceReleaseTests(unittest.TestCase):
     def test_concurrent_tag_change_does_not_replace_feed(self):
         calls, error = self.exercise(tag_changed=True)
         self.assertIsNotNone(error)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)

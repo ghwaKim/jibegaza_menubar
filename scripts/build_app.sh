@@ -104,7 +104,10 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 RELEASE_BINARY="$ROOT_DIR/.build/release/$EXECUTABLE_NAME"
 DISPLAY_VERSION="$(plutil -extract JibegazaDisplayVersion raw "$NEXT_PLIST")"
-ZIP_PATH="$OUTPUT_DIR/$APP_NAME $DISPLAY_VERSION.zip"
+ZIP_PATH="$OUTPUT_DIR/$UPDATE_ARCHIVE"
+if [[ "$BUILD_MODE" == "test" ]]; then
+  ZIP_PATH="$OUTPUT_DIR/$APP_NAME $DISPLAY_VERSION.zip"
+fi
 ICON_PATH="$ROOT_DIR/Resources/AppIcon.icns"
 EXPORT_IMAGE_PATH="$ROOT_DIR/Assets/Export/앱_설치_가이드.png"
 DIST_EXPORT_IMAGE_PATH="$OUTPUT_DIR/앱_설치_가이드.png"
@@ -142,10 +145,12 @@ if [[ -f "$ICON_PATH" ]]; then
   cp "$ICON_PATH" "$RESOURCES_DIR/AppIcon.icns"
 fi
 
-if [[ -f "$EXPORT_IMAGE_PATH" ]]; then
-  echo "Copying export image..."
-  cp "$EXPORT_IMAGE_PATH" "$DIST_EXPORT_IMAGE_PATH"
+if [[ ! -f "$EXPORT_IMAGE_PATH" ]]; then
+  echo "Installation guide not found: $EXPORT_IMAGE_PATH" >&2
+  exit 1
 fi
+echo "Copying export image..."
+cp "$EXPORT_IMAGE_PATH" "$DIST_EXPORT_IMAGE_PATH"
 
 if command -v codesign >/dev/null 2>&1; then
   echo "Applying ad-hoc code signature..."
@@ -163,14 +168,14 @@ if [[ -f "$DIST_EXPORT_IMAGE_PATH" ]]; then
   cp "$DIST_EXPORT_IMAGE_PATH" "$PACKAGE_DIR/"
 fi
 
-ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ZIP_PATH"
+ditto -c -k --sequesterRsrc "$PACKAGE_DIR" "$ZIP_PATH"
 rm -rf "$PACKAGE_DIR"
 if [[ "$BUILD_MODE" == "release" ]]; then
-  # Publish an app-only ZIP: the human installation instructions are kept in the sharing ZIP above.
+  # Direct installation and Sparkle updates use the exact same app + guide ZIP.
   UPDATE_DIR="$OUTPUT_DIR/updates/$BUILD_NUMBER"
   mkdir -p "$UPDATE_DIR"
   UPDATE_ZIP="$UPDATE_DIR/$UPDATE_ARCHIVE"
-  ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$UPDATE_ZIP"
+  cp "$ZIP_PATH" "$UPDATE_ZIP"
   "$SPARKLE_DIR/bin/generate_appcast" \
     --ed-key-file "$SPARKLE_PRIVATE_KEY_FILE" \
     --download-url-prefix "https://github.com/ghwaKim/jibegaza_menubar/releases/download/$RELEASE_TAG/" \
