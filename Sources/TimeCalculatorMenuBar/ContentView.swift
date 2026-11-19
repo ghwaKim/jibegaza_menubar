@@ -101,7 +101,7 @@ struct ContentView: View {
     }
 
     private var footerSection: some View {
-        HStack {
+        HStack(spacing: 16) {
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
@@ -126,6 +126,13 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Color(nsColor: .systemGray))
+
+            Link(destination: URL(string: "https://github.com/ghwaKim/jibegaza_menubar/issues")!) {
+                Label("오류 제보", systemImage: "arrow.up.right.square")
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 

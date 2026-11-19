@@ -25,7 +25,45 @@ struct FlexActionButton: View {
             }
         }
         .font(.caption.weight(.regular))
+        .buttonStyle(FlexConnectionButtonStyle(isConnected: flex.connected && !flex.needsLogin))
         .disabled(flex.isReading || flex.isDisconnecting)
+    }
+}
+
+private struct FlexConnectionButtonStyle: PrimitiveButtonStyle {
+    let isConnected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        if isConnected {
+            Button(configuration)
+                .buttonStyle(FlexConnectedButtonStyle())
+        } else {
+            Button(configuration)
+                .buttonStyle(.bordered)
+        }
+    }
+}
+
+private struct FlexConnectedButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(colorScheme == .dark
+                ? Color(red: 0.62, green: 0.86, blue: 0.68)
+                : Color(red: 0.16, green: 0.39, blue: 0.24))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.green.opacity(configuration.isPressed ? 0.20 : 0.10))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(Color.green.opacity(0.30), lineWidth: 1)
+            }
+            .opacity(isEnabled ? 1 : 0.5)
     }
 }
 
